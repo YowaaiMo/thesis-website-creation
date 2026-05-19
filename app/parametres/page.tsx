@@ -11,8 +11,43 @@ import { RotateCcw } from "lucide-react"
 export default function ParametresPage() {
   const { params, setParams, resetParams } = useSimulation()
 
-  const updateParam = <K extends keyof typeof params>(key: K, value: typeof params[K]) => {
-    setParams({ ...params, [key]: value })
+  const updateParamInt = (key: keyof typeof params, value: string, fallback: number, min: number, max: number) => {
+    const parsed = parseInt(value)
+    if (value === "" || isNaN(parsed)) {
+      // Allow empty field while typing
+      return
+    }
+    const clamped = Math.min(max, Math.max(min, parsed))
+    setParams({ ...params, [key]: clamped })
+  }
+
+  const updateParamFloat = (key: keyof typeof params, value: string, fallback: number, min: number, max: number) => {
+    const parsed = parseFloat(value)
+    if (value === "" || isNaN(parsed)) {
+      return
+    }
+    const clamped = Math.min(max, Math.max(min, parsed))
+    setParams({ ...params, [key]: clamped })
+  }
+
+  const handleBlurInt = (key: keyof typeof params, value: string, fallback: number, min: number, max: number) => {
+    const parsed = parseInt(value)
+    if (value === "" || isNaN(parsed)) {
+      setParams({ ...params, [key]: fallback })
+    } else {
+      const clamped = Math.min(max, Math.max(min, parsed))
+      setParams({ ...params, [key]: clamped })
+    }
+  }
+
+  const handleBlurFloat = (key: keyof typeof params, value: string, fallback: number, min: number, max: number) => {
+    const parsed = parseFloat(value)
+    if (value === "" || isNaN(parsed)) {
+      setParams({ ...params, [key]: fallback })
+    } else {
+      const clamped = Math.min(max, Math.max(min, parsed))
+      setParams({ ...params, [key]: clamped })
+    }
   }
 
   return (
@@ -45,8 +80,10 @@ export default function ParametresPage() {
               <Input
                 id="numScenarios"
                 type="number"
-                value={params.numScenarios}
-                onChange={(e) => updateParam("numScenarios", parseInt(e.target.value) || 100)}
+                defaultValue={params.numScenarios}
+                key={params.numScenarios}
+                onChange={(e) => updateParamInt("numScenarios", e.target.value, 100, 10, 1000)}
+                onBlur={(e) => handleBlurInt("numScenarios", e.target.value, 100, 10, 1000)}
                 min={10}
                 max={1000}
               />
@@ -57,8 +94,10 @@ export default function ParametresPage() {
               <Input
                 id="startYear"
                 type="number"
-                value={params.startYear}
-                onChange={(e) => updateParam("startYear", parseInt(e.target.value) || 2024)}
+                defaultValue={params.startYear}
+                key={`start-${params.startYear}`}
+                onChange={(e) => updateParamInt("startYear", e.target.value, 2024, 2020, 2030)}
+                onBlur={(e) => handleBlurInt("startYear", e.target.value, 2024, 2020, 2030)}
                 min={2020}
                 max={2030}
               />
@@ -68,8 +107,10 @@ export default function ParametresPage() {
               <Input
                 id="endYear"
                 type="number"
-                value={params.endYear}
-                onChange={(e) => updateParam("endYear", parseInt(e.target.value) || 2050)}
+                defaultValue={params.endYear}
+                key={`end-${params.endYear}`}
+                onChange={(e) => updateParamInt("endYear", e.target.value, 2050, 2030, 2100)}
+                onBlur={(e) => handleBlurInt("endYear", e.target.value, 2050, 2030, 2100)}
                 min={2030}
                 max={2100}
               />
@@ -90,8 +131,10 @@ export default function ParametresPage() {
                 id="demandVariance"
                 type="number"
                 step="0.1"
-                value={params.demandVarianceMultiplier}
-                onChange={(e) => updateParam("demandVarianceMultiplier", parseFloat(e.target.value) || 1)}
+                defaultValue={params.demandVarianceMultiplier}
+                key={`demand-${params.demandVarianceMultiplier}`}
+                onChange={(e) => updateParamFloat("demandVarianceMultiplier", e.target.value, 1, 0.1, 3)}
+                onBlur={(e) => handleBlurFloat("demandVarianceMultiplier", e.target.value, 1, 0.1, 3)}
                 min={0.1}
                 max={3}
               />
@@ -117,8 +160,10 @@ export default function ParametresPage() {
                 id="solarAlpha"
                 type="number"
                 step="0.01"
-                value={params.solarAlpha}
-                onChange={(e) => updateParam("solarAlpha", parseFloat(e.target.value) || 5.76)}
+                defaultValue={params.solarAlpha}
+                key={`solar-alpha-${params.solarAlpha}`}
+                onChange={(e) => updateParamFloat("solarAlpha", e.target.value, 5.76, 0.1, 20)}
+                onBlur={(e) => handleBlurFloat("solarAlpha", e.target.value, 5.76, 0.1, 20)}
                 min={0.1}
                 max={20}
               />
@@ -130,8 +175,10 @@ export default function ParametresPage() {
                 id="solarBeta"
                 type="number"
                 step="0.01"
-                value={params.solarBeta}
-                onChange={(e) => updateParam("solarBeta", parseFloat(e.target.value) || 3.84)}
+                defaultValue={params.solarBeta}
+                key={`solar-beta-${params.solarBeta}`}
+                onChange={(e) => updateParamFloat("solarBeta", e.target.value, 3.84, 0.1, 20)}
+                onBlur={(e) => handleBlurFloat("solarBeta", e.target.value, 3.84, 0.1, 20)}
                 min={0.1}
                 max={20}
               />
@@ -155,8 +202,10 @@ export default function ParametresPage() {
                 id="windMean"
                 type="number"
                 step="0.001"
-                value={params.windMean}
-                onChange={(e) => updateParam("windMean", parseFloat(e.target.value) || 0.296)}
+                defaultValue={params.windMean}
+                key={`wind-mean-${params.windMean}`}
+                onChange={(e) => updateParamFloat("windMean", e.target.value, 0.296, 0, 1)}
+                onBlur={(e) => handleBlurFloat("windMean", e.target.value, 0.296, 0, 1)}
                 min={0}
                 max={1}
               />
@@ -168,8 +217,10 @@ export default function ParametresPage() {
                 id="windStd"
                 type="number"
                 step="0.001"
-                value={params.windStd}
-                onChange={(e) => updateParam("windStd", parseFloat(e.target.value) || 0.035)}
+                defaultValue={params.windStd}
+                key={`wind-std-${params.windStd}`}
+                onChange={(e) => updateParamFloat("windStd", e.target.value, 0.035, 0.001, 0.5)}
+                onBlur={(e) => handleBlurFloat("windStd", e.target.value, 0.035, 0.001, 0.5)}
                 min={0.001}
                 max={0.5}
               />
@@ -192,8 +243,10 @@ export default function ParametresPage() {
               <Input
                 id="capexInitial"
                 type="number"
-                value={params.capexPvInitial}
-                onChange={(e) => updateParam("capexPvInitial", parseFloat(e.target.value) || 800)}
+                defaultValue={params.capexPvInitial}
+                key={`capex-init-${params.capexPvInitial}`}
+                onChange={(e) => updateParamFloat("capexPvInitial", e.target.value, 800, 100, 2000)}
+                onBlur={(e) => handleBlurFloat("capexPvInitial", e.target.value, 800, 100, 2000)}
                 min={100}
                 max={2000}
               />
@@ -205,8 +258,10 @@ export default function ParametresPage() {
                 id="capexMu"
                 type="number"
                 step="0.01"
-                value={params.capexPvMu}
-                onChange={(e) => updateParam("capexPvMu", parseFloat(e.target.value) || -0.05)}
+                defaultValue={params.capexPvMu}
+                key={`capex-mu-${params.capexPvMu}`}
+                onChange={(e) => updateParamFloat("capexPvMu", e.target.value, -0.05, -0.2, 0.1)}
+                onBlur={(e) => handleBlurFloat("capexPvMu", e.target.value, -0.05, -0.2, 0.1)}
                 min={-0.2}
                 max={0.1}
               />
@@ -218,8 +273,10 @@ export default function ParametresPage() {
                 id="capexSigma"
                 type="number"
                 step="0.01"
-                value={params.capexPvSigma}
-                onChange={(e) => updateParam("capexPvSigma", parseFloat(e.target.value) || 0.10)}
+                defaultValue={params.capexPvSigma}
+                key={`capex-sigma-${params.capexPvSigma}`}
+                onChange={(e) => updateParamFloat("capexPvSigma", e.target.value, 0.10, 0.01, 0.5)}
+                onBlur={(e) => handleBlurFloat("capexPvSigma", e.target.value, 0.10, 0.01, 0.5)}
                 min={0.01}
                 max={0.5}
               />
@@ -243,8 +300,10 @@ export default function ParametresPage() {
                 id="gasInitial"
                 type="number"
                 step="0.1"
-                value={params.gasPriceInitial}
-                onChange={(e) => updateParam("gasPriceInitial", parseFloat(e.target.value) || 4.5)}
+                defaultValue={params.gasPriceInitial}
+                key={`gas-init-${params.gasPriceInitial}`}
+                onChange={(e) => updateParamFloat("gasPriceInitial", e.target.value, 4.5, 0.5, 20)}
+                onBlur={(e) => handleBlurFloat("gasPriceInitial", e.target.value, 4.5, 0.5, 20)}
                 min={0.5}
                 max={20}
               />
@@ -256,8 +315,10 @@ export default function ParametresPage() {
                 id="gasMu"
                 type="number"
                 step="0.01"
-                value={params.gasPriceMu}
-                onChange={(e) => updateParam("gasPriceMu", parseFloat(e.target.value) || 0.02)}
+                defaultValue={params.gasPriceMu}
+                key={`gas-mu-${params.gasPriceMu}`}
+                onChange={(e) => updateParamFloat("gasPriceMu", e.target.value, 0.02, -0.1, 0.2)}
+                onBlur={(e) => handleBlurFloat("gasPriceMu", e.target.value, 0.02, -0.1, 0.2)}
                 min={-0.1}
                 max={0.2}
               />
@@ -269,8 +330,10 @@ export default function ParametresPage() {
                 id="garchOmega"
                 type="number"
                 step="0.0001"
-                value={params.garchOmega}
-                onChange={(e) => updateParam("garchOmega", parseFloat(e.target.value) || 0.0002)}
+                defaultValue={params.garchOmega}
+                key={`garch-omega-${params.garchOmega}`}
+                onChange={(e) => updateParamFloat("garchOmega", e.target.value, 0.0002, 0.0001, 0.01)}
+                onBlur={(e) => handleBlurFloat("garchOmega", e.target.value, 0.0002, 0.0001, 0.01)}
                 min={0.0001}
                 max={0.01}
               />
@@ -282,8 +345,10 @@ export default function ParametresPage() {
                 id="garchAlpha"
                 type="number"
                 step="0.01"
-                value={params.garchAlpha}
-                onChange={(e) => updateParam("garchAlpha", parseFloat(e.target.value) || 0.10)}
+                defaultValue={params.garchAlpha}
+                key={`garch-alpha-${params.garchAlpha}`}
+                onChange={(e) => updateParamFloat("garchAlpha", e.target.value, 0.10, 0.01, 0.5)}
+                onBlur={(e) => handleBlurFloat("garchAlpha", e.target.value, 0.10, 0.01, 0.5)}
                 min={0.01}
                 max={0.5}
               />
@@ -295,8 +360,10 @@ export default function ParametresPage() {
                 id="garchBeta"
                 type="number"
                 step="0.01"
-                value={params.garchBeta}
-                onChange={(e) => updateParam("garchBeta", parseFloat(e.target.value) || 0.85)}
+                defaultValue={params.garchBeta}
+                key={`garch-beta-${params.garchBeta}`}
+                onChange={(e) => updateParamFloat("garchBeta", e.target.value, 0.85, 0.01, 0.95)}
+                onBlur={(e) => handleBlurFloat("garchBeta", e.target.value, 0.85, 0.01, 0.95)}
                 min={0.01}
                 max={0.95}
               />
