@@ -85,6 +85,11 @@ export default function AnimationPage() {
     10
   )
 
+  const windDistribution = prepareDistribution(
+    scenarios.map(s => s.windAvailability[currentYearIndex] * 100),
+    10
+  )
+
   const capexDistribution = prepareDistribution(
     scenarios.map(s => s.capexPv[currentYearIndex]),
     10
@@ -189,7 +194,7 @@ export default function AnimationPage() {
       </Card>
 
       {/* Statistics for Current Year */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         <StatCard
           label="Demande moyenne"
           value={`${(statistics.demand.mean[currentYearIndex] / 1000).toFixed(1)}k`}
@@ -205,23 +210,30 @@ export default function AnimationPage() {
           q95={statistics.solarAvailability.q95[currentYearIndex] * 100}
         />
         <StatCard
+          label="Eolien moyen"
+          value={`${(statistics.windAvailability.mean[currentYearIndex] * 100).toFixed(1)}`}
+          unit="%"
+          q5={statistics.windAvailability.q5[currentYearIndex] * 100}
+          q95={statistics.windAvailability.q95[currentYearIndex] * 100}
+        />
+        <StatCard
           label="CAPEX PV"
           value={`${statistics.capexPv.mean[currentYearIndex].toFixed(0)}`}
-          unit="€/kW"
+          unit="Euro/kW"
           q5={statistics.capexPv.q5[currentYearIndex]}
           q95={statistics.capexPv.q95[currentYearIndex]}
         />
         <StatCard
           label="Prix Gaz"
           value={`${statistics.gasPrice.mean[currentYearIndex].toFixed(2)}`}
-          unit="€/MBtu"
+          unit="Euro/MBtu"
           q5={statistics.gasPrice.q5[currentYearIndex]}
           q95={statistics.gasPrice.q95[currentYearIndex]}
         />
       </div>
 
       {/* Distribution Charts */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-6">
         <DistributionChart
           title="Distribution de la demande"
           data={demandDistribution}
@@ -235,16 +247,22 @@ export default function AnimationPage() {
           unit="%"
         />
         <DistributionChart
+          title="Distribution eolienne"
+          data={windDistribution}
+          color="var(--chart-5)"
+          unit="%"
+        />
+        <DistributionChart
           title="Distribution CAPEX PV"
           data={capexDistribution}
           color="var(--chart-2)"
-          unit="€/kW"
+          unit="Euro/kW"
         />
         <DistributionChart
           title="Distribution prix gaz"
           data={gasDistribution}
           color="var(--chart-4)"
-          unit="€/MBtu"
+          unit="Euro/MBtu"
         />
       </div>
     </div>
