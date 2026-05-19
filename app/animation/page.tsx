@@ -274,12 +274,24 @@ function prepareDistribution(values: number[], numBins: number) {
   const max = Math.max(...values)
   const binWidth = (max - min) / numBins
 
-  const bins = Array(numBins).fill(0).map((_, i) => ({
-    range: `${(min + i * binWidth).toFixed(0)}-${(min + (i + 1) * binWidth).toFixed(0)}`,
-    count: 0,
-    min: min + i * binWidth,
-    max: min + (i + 1) * binWidth,
-  }))
+  const bins = Array(numBins).fill(0).map((_, i) => {
+    const binMin = min + i * binWidth
+    const binMax = min + (i + 1) * binWidth
+    // Format label based on value magnitude
+    const formatValue = (v: number) => {
+      if (v >= 1000) return `${(v / 1000).toFixed(1)}k`
+      if (v >= 100) return v.toFixed(0)
+      if (v >= 10) return v.toFixed(1)
+      return v.toFixed(2)
+    }
+    return {
+      range: formatValue(binMin),
+      fullRange: `${binMin.toFixed(1)} - ${binMax.toFixed(1)}`,
+      count: 0,
+      min: binMin,
+      max: binMax,
+    }
+  })
 
   values.forEach(v => {
     const binIndex = Math.min(Math.floor((v - min) / binWidth), numBins - 1)
