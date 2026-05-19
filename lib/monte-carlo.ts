@@ -164,24 +164,25 @@ function choleskyDecomposition(matrix: number[][]): number[][] {
 }
 
 // Demand trend functions (based on cahier des charges equations)
-function demandTrendResidential(t: number): number {
-  return 2.97 * t * t + 218.55 * t + 3614.88
+// t_stat = Year - 1980 (statistique), donc pour 2024: t_stat = 44, pour 2050: t_stat = 70
+function demandTrendResidential(tStat: number): number {
+  return 2.97 * tStat * tStat + 218.55 * tStat + 3614.88
 }
 
-function demandTrendIndustrial(t: number): number {
-  return 7.37 * t * t - 108.43 * t + 4045.29
+function demandTrendIndustrial(tStat: number): number {
+  return 7.37 * tStat * tStat - 108.43 * tStat + 4045.29
 }
 
-function demandTrendTransport(t: number): number {
-  return 8.92 * t * t - 51.88 * t + 3291.95
+function demandTrendTransport(tStat: number): number {
+  return 8.92 * tStat * tStat - 51.88 * tStat + 3291.95
 }
 
-function demandTrendAgriculture(t: number): number {
-  return 40.77 * t - 1003.81
+function demandTrendAgriculture(tStat: number): number {
+  return 40.77 * tStat - 1003.81
 }
 
-function demandTrendTertiary(t: number): number {
-  return 142.29 * t - 801.03
+function demandTrendTertiary(tStat: number): number {
+  return 142.29 * tStat - 801.03
 }
 
 // Generate a single scenario
@@ -200,11 +201,12 @@ function generateScenario(id: number, params: SimulationParams): Scenario {
   const stdAgriculture = 102 * params.demandVarianceMultiplier
   const stdTertiary = 230 * params.demandVarianceMultiplier
   
-  // Correlation matrix for main sectors (Res, Ind, Tra)
+  // Correlation matrix for main sectors (Res, Ind, Tra) - from thesis equation 1.21
+  // ρ_Res,Ind = 0.188, ρ_Res,Tra = -0.662, ρ_Ind,Tra = 0.052
   const correlationMatrix = [
-    [1.0, 0.7, 0.5],
-    [0.7, 1.0, 0.6],
-    [0.5, 0.6, 1.0]
+    [1.0, 0.188, -0.662],
+    [0.188, 1.0, 0.052],
+    [-0.662, 0.052, 1.0]
   ]
   
   // Scale to covariance matrix
@@ -225,7 +227,9 @@ function generateScenario(id: number, params: SimulationParams): Scenario {
   const total: number[] = []
   
   for (let i = 0; i < numYears; i++) {
-    const t = i // t starts at 0 for 2024
+    const year = params.startYear + i
+    // t_stat = Year - 1980 (convention statistique de la thèse)
+    const tStat = year - 1980
     
     // Generate correlated errors for main sectors
     const z = [randn(), randn(), randn()]
@@ -235,12 +239,12 @@ function generateScenario(id: number, params: SimulationParams): Scenario {
       L[2][0] * z[0] + L[2][1] * z[1] + L[2][2] * z[2]
     ]
     
-    // Calculate demands with trend + error
-    const resVal = Math.max(0, demandTrendResidential(t) + correlatedErrors[0])
-    const indVal = Math.max(0, demandTrendIndustrial(t) + correlatedErrors[1])
-    const traVal = Math.max(0, demandTrendTransport(t) + correlatedErrors[2])
-    const agrVal = Math.max(0, demandTrendAgriculture(t) + stdAgriculture * randn())
-    const terVal = Math.max(0, demandTrendTertiary(t) + stdTertiary * randn())
+    // Calculate demands with trend + error (using t_stat for polynomial equations)
+    const resVal = Math.max(0, demandTrendResidential(tStat) + correlatedErrors[0])
+    const indVal = Math.max(0, demandTrendIndustrial(tStat) + correlatedErrors[1])
+    const traVal = Math.max(0, demandTrendTransport(tStat) + correlatedErrors[2])
+    const agrVal = Math.max(0, demandTrendAgriculture(tStat) + stdAgriculture * randn())
+    const terVal = Math.max(0, demandTrendTertiary(tStat) + stdTertiary * randn())
     
     residential.push(resVal)
     industrial.push(indVal)
