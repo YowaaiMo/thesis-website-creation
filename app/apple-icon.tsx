@@ -17,7 +17,7 @@ export default function AppleIcon() {
 
   return new ImageResponse(
     (
-      <motion.div
+      <div
         style={{
           width: '100%',
           height: '100%',
@@ -31,7 +31,7 @@ export default function AppleIcon() {
         }}
       >
         {dots.map((dot, i) => (
-          <motion.div
+          <div
             key={i}
             style={{
               position: 'absolute',
@@ -44,7 +44,7 @@ export default function AppleIcon() {
             }}
           />
         ))}
-        <motion.div
+        <div
           style={{
             position: 'absolute',
             left: 84,
@@ -54,7 +54,7 @@ export default function AppleIcon() {
             background: '#5eb4d4',
           }}
         />
-      </motion.div>
+      </div>
     ),
     { ...size }
   )
