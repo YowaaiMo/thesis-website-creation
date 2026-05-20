@@ -73,7 +73,7 @@ export function Navigation() {
           BELKACEM Djamila Racha
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          These 2026
+          PFE 2026
         </p>
       </div>
     </nav>
