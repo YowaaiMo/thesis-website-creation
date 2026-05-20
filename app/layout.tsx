@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: 'Monte Carlo - Planification Energetique Algerie 2050',
   description: 'Plateforme interactive de generation de scenarios Monte Carlo pour la planification energetique stochastique de l\'Algerie',
   generator: 'v0.app',
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    apple: [{ url: '/apple-icon', sizes: '180x180', type: 'image/png' }],
+  },
 }
 
 export default function RootLayout({
