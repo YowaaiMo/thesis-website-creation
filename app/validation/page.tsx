@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { useSimulation } from "@/lib/simulation-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -16,6 +17,9 @@ import {
   Scatter,
   ComposedChart
 } from "recharts"
+import { MethodSelector } from "@/components/method-selector"
+import { PageInfo } from "@/components/page-info"
+import { FlipCard } from "@/components/flip-card"
 
 // Historical data for validation (sample data points)
 const historicalDemand = [
@@ -29,9 +33,9 @@ const historicalDemand = [
   { year: 2024, value: 14200 },
 ]
 
-// Trend function for validation (from cahier des charges)
+// Trend function using t = year - 1980 (from cahier des charges)
 function demandTrend(year: number): number {
-  const t = year - 2024
+  const t = year - 1980
   const residential = 2.97 * t * t + 218.55 * t + 3614.88
   const industrial = 7.37 * t * t - 108.43 * t + 4045.29
   const transport = 8.92 * t * t - 51.88 * t + 3291.95
@@ -41,9 +45,11 @@ function demandTrend(year: number): number {
 }
 
 export default function ValidationPage() {
-  const { result, params } = useSimulation()
+  const { result, lhsResult, params } = useSimulation()
+  const [method, setMethod] = useState<"mc" | "lhs">("mc")
+  const activeResult = method === "mc" ? result : lhsResult
 
-  if (!result) {
+  if (!result && !lhsResult) {
     return (
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
@@ -68,7 +74,68 @@ export default function ValidationPage() {
     )
   }
 
-  const { statistics, scenarios } = result
+  const methodLabel = method === "mc" ? "Monte Carlo" : "LHS"
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-2">Validation du modele</h1>
+        <p className="text-muted-foreground">
+          Verification de la coherence entre donnees historiques, tendances estimees et scenarios simules.
+        </p>
+      </div>
+
+      <PageInfo title="Validation du modele">
+        <p><strong className="text-foreground">Objectif :</strong> Vérifier que les scénarios générés sont cohérents avec les données historiques disponibles et respectent les contraintes physiques du modèle.</p>
+        <p><strong className="text-foreground">Données historiques :</strong> Points de demande énergétique algérienne de 2010 à 2024 (sources : Ministère de l'Énergie, Bilan Énergétique National). Ces points doivent se situer dans l'intervalle de confiance Q5–Q95 des scénarios.</p>
+        <p><strong className="text-foreground">Tendance estimée :</strong> Courbe polynomiale calibrée par OLS sur les données historiques avec t = année − 1980. Elle représente la trajectoire déterministe de référence.</p>
+        <p><strong className="text-foreground">Nuage de trajectoires :</strong> 20 scénarios échantillonnés illustrent la dispersion inter-scénarios. La moyenne (en vert) doit suivre la tendance.</p>
+        <p><strong className="text-foreground">Contraintes physiques vérifiées :</strong></p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li>Demande positive (D ≥ 0)</li>
+          <li>Facteurs de capacité bornés (0 ≤ h ≤ 1)</li>
+          <li>CAPEX et prix du gaz strictement positifs</li>
+        </ul>
+        <p><strong className="text-foreground">MC vs LHS :</strong> Les deux méthodes devraient donner des résultats comparables sur la validation — si l'écart est significatif, c'est le signe d'un manque de scénarios (S trop faible).</p>
+      </PageInfo>
+
+      {/* Method selector */}
+      <MethodSelector method={method} setMethod={setMethod} hasMC={!!result} hasLHS={!!lhsResult} />
+
+      {!activeResult ? (
+        <Card>
+          <CardContent className="py-12">
+            <div className="text-center">
+              <p className="text-muted-foreground mb-4">
+                Aucun resultat LHS — lancez une simulation LHS d&apos;abord.
+              </p>
+              <Button asChild>
+                <Link href="/generation">Lancer une simulation LHS</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <ValidationContent
+          activeResult={activeResult}
+          params={params}
+          methodLabel={methodLabel}
+        />
+      )}
+    </div>
+  )
+}
+
+function ValidationContent({
+  activeResult,
+  params,
+  methodLabel,
+}: {
+  activeResult: NonNullable<ReturnType<typeof useSimulation>["result"]>
+  params: ReturnType<typeof useSimulation>["params"]
+  methodLabel: string
+}) {
+  const { statistics, scenarios } = activeResult
   const years = scenarios[0].years
 
   // Prepare validation data
@@ -79,7 +146,7 @@ export default function ValidationPage() {
   const validationData = allYears.map(year => {
     const historical = historicalDemand.find(h => h.year === year)
     const yearIdx = years.indexOf(year)
-    
+
     return {
       year,
       historical: historical?.value || null,
@@ -95,8 +162,8 @@ export default function ValidationPage() {
   const sampledScenarios = scenarios.filter((_, i) => i % Math.floor(scenarios.length / sampleSize) === 0)
 
   const trajectoryData = years.map((year, i) => {
-    const data: Record<string, number | null> = { 
-      year, 
+    const data: Record<string, number | null> = {
+      year,
       trend: demandTrend(year),
       mean: statistics.demand.mean[i]
     }
@@ -107,166 +174,86 @@ export default function ValidationPage() {
   })
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Validation du modele</h1>
-        <p className="text-muted-foreground">
-          Verification de la coherence entre donnees historiques, tendances estimees et scenarios simules.
-        </p>
-      </div>
-
+    <>
       {/* Main Validation Chart */}
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>Demande: historique vs simulation</CardTitle>
-          <CardDescription>
-            Points historiques, tendance estimee et intervalle de confiance des scenarios
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[500px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={validationData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis 
-                  dataKey="year" 
-                  stroke="var(--muted-foreground)"
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                />
-                <YAxis 
-                  stroke="var(--muted-foreground)"
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                  tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--card)',
-                    borderColor: 'var(--border)',
-                    color: 'var(--card-foreground)'
-                  }}
-                />
-                <Legend />
-                
-                {/* Confidence interval */}
-                <Line
-                  type="monotone"
-                  dataKey="q95"
-                  stroke="var(--chart-1)"
-                  strokeWidth={1}
-                  strokeDasharray="3 3"
-                  dot={false}
-                  name="Q95"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="q5"
-                  stroke="var(--chart-1)"
-                  strokeWidth={1}
-                  strokeDasharray="3 3"
-                  dot={false}
-                  name="Q5"
-                />
-                
-                {/* Trend line */}
-                <Line
-                  type="monotone"
-                  dataKey="trend"
-                  stroke="var(--chart-3)"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Tendance estimee"
-                />
-                
-                {/* Simulated mean */}
-                <Line
-                  type="monotone"
-                  dataKey="simulated"
-                  stroke="var(--chart-1)"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Moyenne simulee"
-                />
-                
-                {/* Historical points */}
-                <Scatter
-                  dataKey="historical"
-                  fill="var(--chart-4)"
-                  name="Donnees historiques"
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+      <FlipCard
+        className="mb-8"
+        front={
+          <Card>
+            <CardHeader>
+              <CardTitle>Demande: historique vs simulation</CardTitle>
+              <CardDescription>Points historiques, tendance estimee et intervalle de confiance des scenarios</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[500px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={validationData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="year" stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
+                    <YAxis stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', color: 'var(--card-foreground)' }} />
+                    <Legend />
+                    <Line type="monotone" dataKey="q95" stroke="var(--chart-1)" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Q95" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="q5" stroke="var(--chart-1)" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Q5" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="trend" stroke="var(--chart-3)" strokeWidth={2} dot={false} name="Tendance estimee" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="simulated" stroke="var(--chart-1)" strokeWidth={2} dot={false} name="Moyenne simulee" isAnimationActive={false} />
+                    <Scatter dataKey="historical" fill="var(--chart-4)" name="Donnees historiques" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        }
+        back={
+          <>
+            <h3 className="font-semibold text-foreground text-base mb-2">Validation — Comment lire ce graphe</h3>
+            <p><strong className="text-foreground">Points rouges (●) :</strong> Données historiques réelles de la demande énergétique algérienne (2010–2024). Ces points doivent se situer entre les courbes Q5 et Q95 pour valider le modèle.</p>
+            <p><strong className="text-foreground">Courbe verte :</strong> Tendance polynomiale estimée par OLS sur données historiques. Elle est déterministe — pas de variabilité stochastique.</p>
+            <p><strong className="text-foreground">Courbe bleue pleine :</strong> Moyenne des scénarios simulés. Elle doit coller à la tendance verte sur la période historique.</p>
+            <p><strong className="text-foreground">Bande bleue pointillée :</strong> Intervalle Q5–Q95 (confiance 90%). Toutes les données historiques devraient y être incluses.</p>
+            <p><strong className="text-foreground">Critère de validation :</strong> Si les données historiques sortent de l'intervalle Q5–Q95, le modèle sous-estime l'incertitude ou la tendance est mal calibrée.</p>
+          </>
+        }
+      />
 
       {/* Trajectories Cloud */}
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>Nuage de trajectoires simulees</CardTitle>
-          <CardDescription>
-            {sampleSize} trajectoires echantillonnees sur {scenarios.length} scenarios
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trajectoryData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis 
-                  dataKey="year" 
-                  stroke="var(--muted-foreground)"
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                />
-                <YAxis 
-                  stroke="var(--muted-foreground)"
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                  tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--card)',
-                    borderColor: 'var(--border)',
-                    color: 'var(--card-foreground)'
-                  }}
-                />
-                
-                {/* Individual trajectories */}
-                {sampledScenarios.map((_, j) => (
-                  <Line
-                    key={j}
-                    type="monotone"
-                    dataKey={`s${j}`}
-                    stroke="var(--chart-1)"
-                    strokeWidth={0.5}
-                    strokeOpacity={0.3}
-                    dot={false}
-                  />
-                ))}
-                
-                {/* Trend line */}
-                <Line
-                  type="monotone"
-                  dataKey="trend"
-                  stroke="var(--chart-3)"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Tendance"
-                />
-                
-                {/* Mean */}
-                <Line
-                  type="monotone"
-                  dataKey="mean"
-                  stroke="var(--chart-2)"
-                  strokeWidth={3}
-                  dot={false}
-                  name="Moyenne"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+      <FlipCard
+        className="mb-8"
+        front={
+          <Card>
+            <CardHeader>
+              <CardTitle>Nuage de trajectoires simulees</CardTitle>
+              <CardDescription>{sampleSize} trajectoires echantillonnees sur {scenarios.length} scenarios</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trajectoryData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="year" stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
+                    <YAxis stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', color: 'var(--card-foreground)' }} />
+                    {sampledScenarios.map((_, j) => (
+                      <Line key={j} type="monotone" dataKey={`s${j}`} stroke="var(--chart-1)" strokeWidth={0.5} strokeOpacity={0.3} dot={false} isAnimationActive={false} />
+                    ))}
+                    <Line type="monotone" dataKey="trend" stroke="var(--chart-3)" strokeWidth={2} dot={false} name="Tendance" isAnimationActive={false} />
+                    <Line type="monotone" dataKey="mean" stroke="var(--chart-2)" strokeWidth={3} dot={false} name="Moyenne" isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        }
+        back={
+          <>
+            <h3 className="font-semibold text-foreground text-base mb-2">Nuage de trajectoires — Interpretation</h3>
+            <p>Ce graphe montre {sampleSize} trajectoires individuelles tirées uniformément parmi les {scenarios.length} scénarios. Chaque ligne bleue fine est un scénario possible — ensemble, elles forment le <strong className="text-foreground">cône d'incertitude</strong> de la demande.</p>
+            <p><strong className="text-foreground">Divergence progressive :</strong> Les trajectoires s'écartent avec le temps. C'est une propriété fondamentale des processus stochastiques — l'incertitude s'accumule.</p>
+            <p><strong className="text-foreground">Courbe verte :</strong> Tendance déterministe (OLS). La moyenne des scénarios (vert épais) doit la suivre de près — un écart systématique indiquerait un biais de modèle.</p>
+            <p><strong className="text-foreground">LHS vs MC :</strong> Avec LHS, le nuage de trajectoires est généralement plus régulièrement réparti (pas de sous- ou sur-représentation de certaines zones), ce qui donne une meilleure image de la distribution réelle.</p>
+          </>
+        }
+      />
 
       {/* Validation Metrics */}
       <div className="grid md:grid-cols-2 gap-6">
@@ -349,26 +336,26 @@ export default function ValidationPage() {
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground leading-relaxed">
-            Le graphique montre que les scenarios generes par Monte Carlo sont coherents avec les donnees historiques. 
-            Les points historiques (en rouge) se situent dans l&apos;intervalle de confiance defini par les quantiles 5% et 95%. 
+            Le graphique montre que les scenarios generes par {methodLabel} sont coherents avec les donnees historiques.
+            Les points historiques (en rouge) se situent dans l&apos;intervalle de confiance defini par les quantiles 5% et 95%.
             La moyenne des scenarios (en bleu) suit la tendance estimee (en vert) avec une dispersion realiste.
             Les trajectoires simulees divergent progressivement, illustrant l&apos;accumulation de l&apos;incertitude au fil du temps.
             Toutes les contraintes de coherence physique sont respectees.
           </p>
         </CardContent>
       </Card>
-    </div>
+    </>
   )
 }
 
-function MetricRow({ 
-  label, 
-  value, 
-  description, 
-  status 
-}: { 
-  label: string; 
-  value: string; 
+function MetricRow({
+  label,
+  value,
+  description,
+  status
+}: {
+  label: string;
+  value: string;
   description: string;
   status: "success" | "warning" | "error";
 }) {
@@ -389,13 +376,13 @@ function MetricRow({
   )
 }
 
-function ConstraintRow({ 
-  constraint, 
-  status, 
-  description 
-}: { 
-  constraint: string; 
-  status: "valid" | "invalid"; 
+function ConstraintRow({
+  constraint,
+  status,
+  description
+}: {
+  constraint: string;
+  status: "valid" | "invalid";
   description: string;
 }) {
   return (

@@ -1,10 +1,14 @@
 "use client"
 
+import { useState } from "react"
 import { useSimulation } from "@/lib/simulation-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { AlertTriangle, TrendingUp, TrendingDown, Flame, Sun } from "lucide-react"
+import { MethodSelector } from "@/components/method-selector"
+import { PageInfo } from "@/components/page-info"
+import { FlipCard } from "@/components/flip-card"
 import {
   LineChart,
   Line,
@@ -17,9 +21,11 @@ import {
 } from "recharts"
 
 export default function ExtremesPage() {
-  const { result } = useSimulation()
+  const { result, lhsResult } = useSimulation()
+  const [method, setMethod] = useState<"mc" | "lhs">("mc")
+  const activeResult = method === "mc" ? result : lhsResult
 
-  if (!result) {
+  if (!result && !lhsResult) {
     return (
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
@@ -44,7 +50,61 @@ export default function ExtremesPage() {
     )
   }
 
-  const { extremeScenarios, scenarios, statistics } = result
+  const methodPrefix = method === "mc" ? "MC" : "LHS"
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-2">Scenarios extremes</h1>
+        <p className="text-muted-foreground">
+          Identification automatique des scenarios critiques pour la planification robuste.
+        </p>
+      </div>
+
+      <PageInfo title="Scenarios extremes — Methodologie">
+        <p><strong className="text-foreground">Qu'est-ce qu'un scénario extrême ?</strong> Un scénario identifié automatiquement comme le plus défavorable ou le plus favorable sur un critère donné, parmi l'ensemble des {(activeResult ?? result ?? lhsResult)?.scenarios.length ?? "..."} scénarios générés.</p>
+        <p><strong className="text-foreground">Critères d'identification :</strong></p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li><strong className="text-foreground">Pessimiste :</strong> score composite = demande élevée + solaire faible + gaz cher (normalisé et pondéré)</li>
+          <li><strong className="text-foreground">Max / Min Demande :</strong> somme cumulée de la demande totale sur tout l'horizon</li>
+          <li><strong className="text-foreground">Max Prix Gaz :</strong> moyenne temporelle du prix du gaz</li>
+          <li><strong className="text-foreground">Min CAPEX PV :</strong> valeur du CAPEX en 2050</li>
+        </ul>
+        <p><strong className="text-foreground">Utilité pour la planification :</strong> Le scénario pessimiste dimensionne les infrastructures pour le "pire cas plausible". Le scénario optimiste permet d'estimer les économies potentielles si les conditions sont favorables.</p>
+        <p><strong className="text-foreground">MC vs LHS :</strong> Les scénarios extrêmes LHS couvrent l'espace des paramètres de façon plus uniforme — les extrêmes sont donc plus représentatifs des vraies queues de distribution, sans sur-représentation des zones centrales.</p>
+      </PageInfo>
+
+      {/* Method selector */}
+      <MethodSelector method={method} setMethod={setMethod} hasMC={!!result} hasLHS={!!lhsResult} />
+
+      {!activeResult ? (
+        <Card>
+          <CardContent className="py-12">
+            <div className="text-center">
+              <p className="text-muted-foreground mb-4">
+                Aucun resultat LHS — lancez une simulation LHS d&apos;abord.
+              </p>
+              <Button asChild>
+                <Link href="/generation">Lancer une simulation LHS</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <ExtremesContent activeResult={activeResult} methodPrefix={methodPrefix} />
+      )}
+    </div>
+  )
+}
+
+function ExtremesContent({
+  activeResult,
+  methodPrefix,
+}: {
+  activeResult: NonNullable<ReturnType<typeof useSimulation>["result"]>
+  methodPrefix: string
+}) {
+  const { extremeScenarios, scenarios, statistics } = activeResult
   const years = scenarios[0].years
 
   // Get extreme scenarios data
@@ -52,7 +112,6 @@ export default function ExtremesPage() {
   const maxDemand = scenarios[extremeScenarios.maxDemand]
   const minDemand = scenarios[extremeScenarios.minDemand]
   const maxGas = scenarios[extremeScenarios.maxGasPrice]
-  const minCapex = scenarios[extremeScenarios.minCapexPv]
 
   // Prepare comparison data
   const demandComparison = years.map((year, i) => ({
@@ -71,20 +130,14 @@ export default function ExtremesPage() {
   }))
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Scenarios extremes</h1>
-        <p className="text-muted-foreground">
-          Identification automatique des scenarios critiques pour la planification robuste.
-        </p>
-      </div>
-
+    <>
       {/* Extreme Scenarios Cards */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <ExtremeCard
           icon={AlertTriangle}
           title="Scenario pessimiste"
           scenarioId={extremeScenarios.pessimistic + 1}
+          methodPrefix={methodPrefix}
           description="Forte demande + faible renouvelable + gaz cher"
           color="text-chart-4"
         />
@@ -92,6 +145,7 @@ export default function ExtremesPage() {
           icon={TrendingUp}
           title="Demande maximale"
           scenarioId={extremeScenarios.maxDemand + 1}
+          methodPrefix={methodPrefix}
           description="Plus haute demande energetique cumulee"
           color="text-chart-4"
         />
@@ -99,6 +153,7 @@ export default function ExtremesPage() {
           icon={TrendingDown}
           title="Demande minimale"
           scenarioId={extremeScenarios.minDemand + 1}
+          methodPrefix={methodPrefix}
           description="Plus basse demande energetique cumulee"
           color="text-chart-2"
         />
@@ -106,6 +161,7 @@ export default function ExtremesPage() {
           icon={Flame}
           title="Prix gaz maximum"
           scenarioId={extremeScenarios.maxGasPrice + 1}
+          methodPrefix={methodPrefix}
           description="Plus haute moyenne du prix du gaz"
           color="text-chart-4"
         />
@@ -113,6 +169,7 @@ export default function ExtremesPage() {
           icon={Sun}
           title="CAPEX PV minimum"
           scenarioId={extremeScenarios.minCapexPv + 1}
+          methodPrefix={methodPrefix}
           description="Cout PV le plus bas en 2050"
           color="text-chart-2"
         />
@@ -162,138 +219,77 @@ export default function ExtremesPage() {
 
       {/* Comparison Charts */}
       <div className="grid lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Comparaison des demandes extremes</CardTitle>
-            <CardDescription>
-              Trajectoires de demande pour les scenarios extremes
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[350px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={demandComparison}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis 
-                    dataKey="year" 
-                    stroke="var(--muted-foreground)"
-                    tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                  />
-                  <YAxis 
-                    stroke="var(--muted-foreground)"
-                    tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                    tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--card)',
-                      borderColor: 'var(--border)',
-                      color: 'var(--card-foreground)'
-                    }}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="maxDemand"
-                    stroke="var(--chart-4)"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Max Demande"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="minDemand"
-                    stroke="var(--chart-2)"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Min Demande"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="pessimistic"
-                    stroke="var(--chart-5)"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                    name="Pessimiste"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="mean"
-                    stroke="var(--muted-foreground)"
-                    strokeWidth={1}
-                    strokeDasharray="3 3"
-                    dot={false}
-                    name="Moyenne"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <FlipCard
+          front={
+            <Card>
+              <CardHeader>
+                <CardTitle>Comparaison des demandes extremes</CardTitle>
+                <CardDescription>Trajectoires de demande pour les scenarios extremes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[350px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={demandComparison}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="year" stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
+                      <YAxis stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', color: 'var(--card-foreground)' }} />
+                      <Legend />
+                      <Line type="monotone" dataKey="maxDemand" stroke="var(--chart-4)" strokeWidth={2} dot={false} name="Max Demande" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="minDemand" stroke="var(--chart-2)" strokeWidth={2} dot={false} name="Min Demande" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="pessimistic" stroke="var(--chart-5)" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Pessimiste" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="mean" stroke="var(--muted-foreground)" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Moyenne" isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          }
+          back={
+            <>
+              <h3 className="font-semibold text-foreground text-base mb-2">Demandes extremes — Lecture</h3>
+              <p><strong className="text-foreground">Orange (Max Demande) :</strong> scénario avec la plus haute demande cumulée sur 2024–2050. Représente le risque de sous-dimensionnement des infrastructures si on planifie trop conservativement.</p>
+              <p><strong className="text-foreground">Vert (Min Demande) :</strong> scénario avec la plus basse demande cumulée. Représente le risque de surinvestissement — des capacités installées non utilisées.</p>
+              <p><strong className="text-foreground">Violet pointillé (Pessimiste) :</strong> score composite le plus défavorable. Notez qu'il n'est pas forcément identique au Max Demande — le scénario pessimiste cumule plusieurs facteurs défavorables simultanément.</p>
+              <p><strong className="text-foreground">Ecart en 2050 :</strong> L'écart entre Max et Min Demande représente la fourchette d'incertitude sur laquelle les planificateurs doivent dimensionner les capacités.</p>
+            </>
+          }
+        />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Prix du gaz - Scenarios extremes</CardTitle>
-            <CardDescription>
-              Trajectoires de prix pour le scenario pessimiste et max gaz
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[350px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={gasComparison}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis 
-                    dataKey="year" 
-                    stroke="var(--muted-foreground)"
-                    tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                  />
-                  <YAxis 
-                    stroke="var(--muted-foreground)"
-                    tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                    tickFormatter={(value) => `${value.toFixed(1)}€`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--card)',
-                      borderColor: 'var(--border)',
-                      color: 'var(--card-foreground)'
-                    }}
-                    formatter={(value: number) => [`${value.toFixed(2)} €/MBtu`, '']}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="maxGas"
-                    stroke="var(--chart-4)"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Max Prix Gaz"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="pessimistic"
-                    stroke="var(--chart-5)"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                    name="Pessimiste"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="mean"
-                    stroke="var(--muted-foreground)"
-                    strokeWidth={1}
-                    strokeDasharray="3 3"
-                    dot={false}
-                    name="Moyenne"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <FlipCard
+          front={
+            <Card>
+              <CardHeader>
+                <CardTitle>Prix du gaz - Scenarios extremes</CardTitle>
+                <CardDescription>Trajectoires de prix pour le scenario pessimiste et max gaz</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[350px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={gasComparison}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="year" stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
+                      <YAxis stroke="var(--muted-foreground)" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickFormatter={(value) => `${value.toFixed(1)}€`} />
+                      <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', color: 'var(--card-foreground)' }} formatter={(value: number) => [`${value.toFixed(2)} €/MBtu`, '']} />
+                      <Legend />
+                      <Line type="monotone" dataKey="maxGas" stroke="var(--chart-4)" strokeWidth={2} dot={false} name="Max Prix Gaz" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="pessimistic" stroke="var(--chart-5)" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Pessimiste" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="mean" stroke="var(--muted-foreground)" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Moyenne" isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          }
+          back={
+            <>
+              <h3 className="font-semibold text-foreground text-base mb-2">Prix du gaz extremes — GARCH</h3>
+              <p><strong className="text-foreground">Orange (Max Prix Gaz) :</strong> scénario avec la plus haute moyenne de prix du gaz. Dans ce contexte, le gaz naturel devient très coûteux — les EnR (solaire, éolien) atteignent la parité de coût avec le gaz beaucoup plus tôt.</p>
+              <p><strong className="text-foreground">Impact sur la planification :</strong> Un prix du gaz élevé accélère l'intérêt économique des investissements renouvelables et réduit la durée de retour sur investissement des centrales solaires.</p>
+              <p><strong className="text-foreground">GARCH et clusters :</strong> La persistance α+β = 0.95 signifie que le scénario Max Gaz maintient une variance élevée sur plusieurs années — les pics ne sont pas ponctuels mais s'étalent dans le temps.</p>
+            </>
+          }
+        />
       </div>
 
       {/* Implications */}
@@ -322,21 +318,23 @@ export default function ExtremesPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </>
   )
 }
 
-function ExtremeCard({ 
-  icon: Icon, 
-  title, 
-  scenarioId, 
-  description, 
-  color 
-}: { 
-  icon: React.ComponentType<{ className?: string }>; 
-  title: string; 
-  scenarioId: number; 
-  description: string; 
+function ExtremeCard({
+  icon: Icon,
+  title,
+  scenarioId,
+  methodPrefix,
+  description,
+  color
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  scenarioId: number;
+  methodPrefix: string;
+  description: string;
   color: string;
 }) {
   return (
@@ -348,7 +346,7 @@ function ExtremeCard({
           </div>
           <div>
             <h3 className="font-medium">{title}</h3>
-            <p className="text-2xl font-bold mt-1">Scenario {scenarioId}</p>
+            <p className="text-2xl font-bold mt-1">{methodPrefix} #{scenarioId}</p>
             <p className="text-xs text-muted-foreground mt-1">{description}</p>
           </div>
         </div>
@@ -357,10 +355,10 @@ function ExtremeCard({
   )
 }
 
-function StatCard({ label, value, unit, comparison }: { 
-  label: string; 
-  value: string; 
-  unit: string; 
+function StatCard({ label, value, unit, comparison }: {
+  label: string;
+  value: string;
+  unit: string;
   comparison: string;
 }) {
   return (

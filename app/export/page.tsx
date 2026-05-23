@@ -1,11 +1,11 @@
 "use client"
 
 import { useSimulation } from "@/lib/simulation-context"
-import { exportToCSV, exportToJSON } from "@/lib/monte-carlo"
+import { exportToCSV, exportToJSON, DEFAULT_DETERMINISTIC_PARAMS } from "@/lib/monte-carlo"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Download, FileText, FileJson, FileSpreadsheet } from "lucide-react"
+import { Download, FileText, FileJson, FileSpreadsheet, Printer } from "lucide-react"
 
 export default function ExportPage() {
   const { result, params } = useSimulation()
@@ -55,6 +55,19 @@ export default function ExportPage() {
     URL.revokeObjectURL(link.href)
   }
 
+  const downloadJSONConfig = () => {
+    const config = JSON.stringify({
+      stochasticParams: params,
+      deterministicParams: DEFAULT_DETERMINISTIC_PARAMS,
+    }, null, 2)
+    const blob = new Blob([config], { type: 'application/json' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `simulation_config_${params.startYear}-${params.endYear}.json`
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
   const downloadStatisticsCSV = () => {
     const years = result.scenarios[0].years
     const headers = ['year', 'demand_mean', 'demand_std', 'demand_q5', 'demand_q95', 
@@ -91,6 +104,49 @@ export default function ExportPage() {
     URL.revokeObjectURL(link.href)
   }
 
+  const downloadExcel = () => {
+    const years = result.scenarios[0].years
+    const headers = ['Scenario', 'Annee', 'Demande totale (ktep)', 'Residentiel', 'Industriel',
+      'Transport', 'Agriculture', 'Tertiaire', 'h_PV', 'h_Wind', 'CAPEX PV (€/kW)',
+      'Prix gaz (€/MBtu)', 'Op. gaz', 'Op. petrole (DA/tep)', 'Op. GPL (DA/tep)', 'Op. condensat (DA/tep)']
+
+    let table = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>'
+    result.scenarios.forEach(scenario => {
+      years.forEach((year, i) => {
+        table += '<tr>' + [
+          scenario.id, year,
+          scenario.demand.total[i].toFixed(2),
+          scenario.demand.residential[i].toFixed(2),
+          scenario.demand.industrial[i].toFixed(2),
+          scenario.demand.transport[i].toFixed(2),
+          scenario.demand.agriculture[i].toFixed(2),
+          scenario.demand.tertiary[i].toFixed(2),
+          scenario.solarAvailability[i].toFixed(4),
+          scenario.windAvailability[i].toFixed(4),
+          scenario.capexPv[i].toFixed(2),
+          scenario.gasPrice[i].toFixed(2),
+          scenario.operationalCostGas[i].toFixed(2),
+          scenario.operationalCostOil[i].toFixed(0),
+          scenario.operationalCostGPL[i].toFixed(0),
+          scenario.operationalCostCondensat[i].toFixed(0),
+        ].map(v => `<td>${v}</td>`).join('') + '</tr>'
+      })
+    })
+    table += '</tbody></table>'
+
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body>${table}</body></html>`
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `monte_carlo_scenarios_${params.numScenarios}s_${params.startYear}-${params.endYear}.xls`
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
+  const printReport = () => {
+    window.print()
+  }
+
   const totalDataPoints = result.scenarios.length * result.scenarios[0].years.length
 
   return (
@@ -112,14 +168,14 @@ export default function ExportPage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Scenarios" value={result.scenarios.length.toString()} />
             <StatCard label="Annees" value={(params.endYear - params.startYear + 1).toString()} />
-            <StatCard label="Variables" value="7" />
+            <StatCard label="Variables" value="10" />
             <StatCard label="Points de donnees" value={totalDataPoints.toLocaleString()} />
           </div>
         </CardContent>
       </Card>
 
       {/* Export Options */}
-      <div className="grid md:grid-cols-3 gap-6 mb-8">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4">
         {/* CSV Export */}
         <Card>
           <CardHeader>
@@ -188,6 +244,81 @@ export default function ExportPage() {
             <Button onClick={downloadStatisticsCSV} className="w-full gap-2">
               <Download className="h-4 w-4" />
               Telecharger Stats
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Config JSON Export */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <FileJson className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">Config</CardTitle>
+                <CardDescription>Parametres complets</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Tous les parametres stochastiques et deterministes en JSON. Pour reproductibilite.
+            </p>
+            <Button onClick={downloadJSONConfig} variant="outline" className="w-full gap-2">
+              <Download className="h-4 w-4" />
+              Config JSON
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Excel + PDF row */}
+      <div className="grid md:grid-cols-2 gap-6 mb-8">
+        {/* Excel Export */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <FileSpreadsheet className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">Excel (.xls)</CardTitle>
+                <CardDescription>Tableau complet</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Tous les scenarios en format Excel (HTML table). Compatible avec Microsoft Excel et LibreOffice Calc.
+            </p>
+            <Button onClick={downloadExcel} variant="outline" className="w-full gap-2">
+              <Download className="h-4 w-4" />
+              Telecharger Excel
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* PDF Export */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Printer className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">PDF / Impression</CardTitle>
+                <CardDescription>Rapport imprimable</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Imprimez cette page ou enregistrez-la en PDF via la boite de dialogue d&apos;impression du navigateur.
+            </p>
+            <Button onClick={printReport} variant="outline" className="w-full gap-2">
+              <Printer className="h-4 w-4" />
+              Imprimer / PDF
             </Button>
           </CardContent>
         </Card>
@@ -280,6 +411,9 @@ export default function ExportPage() {
             <VariableRow variable="capex_PV" description="CAPEX PV (€/kW)" />
             <VariableRow variable="gas_price" description="Prix du gaz (€/MBtu)" />
             <VariableRow variable="op_cost_gas" description="Cout op. gaz (€/MWh)" />
+            <VariableRow variable="op_cost_oil_DA_tep" description="Cout op. petrole (DA/tep)" />
+            <VariableRow variable="op_cost_gpl_DA_tep" description="Cout op. GPL (DA/tep)" />
+            <VariableRow variable="op_cost_cond_DA_tep" description="Cout op. condensat (DA/tep)" />
           </div>
         </CardContent>
       </Card>

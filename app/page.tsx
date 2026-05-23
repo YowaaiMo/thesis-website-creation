@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowRight, Database, LineChart, BarChart3, Download } from "lucide-react"
+import { ArrowRight, Database, LineChart, BarChart3, Download, Layers, FileText } from "lucide-react"
 
 export default function HomePage() {
   return (
@@ -11,24 +11,54 @@ export default function HomePage() {
       {/* Header */}
       <div className="mb-12">
         <div className="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary text-sm mb-4">
-          Simulation Monte Carlo
+          Monte Carlo &amp; Latin Hypercube Sampling
         </div>
         <h1 className="text-4xl font-bold text-foreground mb-4 text-balance">
-          Plateforme interactive de generation de scenarios Monte Carlo
+          Plateforme interactive de generation de scenarios stochastiques
         </h1>
         <p className="text-lg text-muted-foreground max-w-2xl text-pretty">
           Outil de planification energetique stochastique applique a l&apos;Algerie a l&apos;horizon 2050.
-          Generez, visualisez et analysez des scenarios pour la prise de decision sous incertitude.
+          Generez, visualisez et analysez des scenarios par <strong>Monte Carlo (MC)</strong> et
+          par <strong>Latin Hypercube Sampling (LHS)</strong> pour la prise de decision sous incertitude.
         </p>
+      </div>
+
+      {/* Method comparison cards */}
+      <div className="grid md:grid-cols-2 gap-4 mb-12">
+        <Card className="border-chart-1/40 bg-chart-1/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-chart-1">Monte Carlo (MC)</CardTitle>
+            <CardDescription>Tirage aleatoire pur</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground space-y-1">
+            <p>Chaque scenario tire independamment de la distribution cible.</p>
+            <code className="block bg-secondary/40 rounded px-2 py-1 text-xs mt-2">
+              zt ~ N(0,1) &nbsp;independant
+            </code>
+            <p className="text-xs mt-2">Convergence en O(1/√S) — recommande pour S ≥ 500.</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-chart-2/40 bg-chart-2/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-chart-2">Latin Hypercube Sampling (LHS)</CardTitle>
+            <CardDescription>Echantillonnage stratifie</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground space-y-1">
+            <p>L&apos;espace [0,1] est divise en S strates, chacune echantillonnee exactement une fois.</p>
+            <code className="block bg-secondary/40 rounded px-2 py-1 text-xs mt-2">
+              uk = (k + U) / S &nbsp;; &nbsp;zt = Φ⁻¹(uk)
+            </code>
+            <p className="text-xs mt-2">Meilleure couverture — recommande pour S &lt; 300.</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Process Flow */}
       <Card className="mb-12 bg-card border-border">
         <CardHeader>
           <CardTitle className="text-xl">Chaine de traitement</CardTitle>
-          <CardDescription>
-            Du donnees brutes aux scenarios exploitables
-          </CardDescription>
+          <CardDescription>Du donnees brutes aux scenarios exploitables</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-center justify-between gap-4 py-4">
@@ -36,9 +66,11 @@ export default function HomePage() {
             <ArrowRight className="h-5 w-5 text-muted-foreground hidden sm:block" />
             <ProcessStep icon={BarChart3} label="Lois probabilistes" />
             <ArrowRight className="h-5 w-5 text-muted-foreground hidden sm:block" />
-            <ProcessStep icon={LineChart} label="Scenarios Monte Carlo" />
+            <ProcessStep icon={Layers} label="Scenarios MC / LHS" />
             <ArrowRight className="h-5 w-5 text-muted-foreground hidden sm:block" />
-            <ProcessStep icon={Download} label="Optimisation" />
+            <ProcessStep icon={LineChart} label="Analyse &amp; Comparaison" />
+            <ArrowRight className="h-5 w-5 text-muted-foreground hidden sm:block" />
+            <ProcessStep icon={Download} label="Export / Optimisation" />
           </div>
         </CardContent>
       </Card>
@@ -46,28 +78,28 @@ export default function HomePage() {
       {/* Features Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
         <FeatureCard
-          title="Generation automatique"
-          description="Generez jusqu&apos;a 500 scenarios couvrant l&apos;ensemble des incertitudes du systeme energetique."
+          title="Generation MC + LHS"
+          description="Generez jusqu&apos;a 500 scenarios par Monte Carlo et/ou Latin Hypercube Sampling, avec graine reproductible."
+        />
+        <FeatureCard
+          title="Comparaison MC vs LHS"
+          description="Comparez les deux methodes sur les moyennes, ecarts-types, Q5–Q95 et convergence."
         />
         <FeatureCard
           title="Visualisation interactive"
-          description="Explorez les trajectoires simulees avec des graphiques interactifs et des nuages de scenarios."
+          description="Explorez les trajectoires simulees avec des graphiques interactifs, nuages de scenarios et histogrammes."
         />
         <FeatureCard
           title="Analyse statistique"
-          description="Calculez automatiquement les statistiques cles : moyenne, variance, quantiles."
+          description="Calculez automatiquement les statistiques cles : moyenne, variance, quantiles 5%–95%."
         />
         <FeatureCard
-          title="Scenarios extremes"
-          description="Identifiez les scenarios pessimistes et optimistes pour une planification robuste."
-        />
-        <FeatureCard
-          title="Analyse de sensibilite"
-          description="Testez l&apos;impact des variations de parametres sur les resultats."
+          title="Interpretation automatique"
+          description="Obtenez une analyse textuelle des tendances, volatilites et scenarios extremes."
         />
         <FeatureCard
           title="Export des donnees"
-          description="Exportez vos scenarios en CSV, Excel ou JSON pour l&apos;optimisation."
+          description="Exportez vos scenarios en CSV, JSON ou statistiques agregees pour l&apos;optimisation."
         />
       </div>
 
@@ -80,47 +112,71 @@ export default function HomePage() {
           </Link>
         </Button>
         <Button asChild variant="outline" size="lg">
-          <Link href="/parametres">
-            Configurer les parametres
+          <Link href="/mc-lhs">
+            <Layers className="mr-2 h-4 w-4" />
+            Comparaison MC vs LHS
           </Link>
+        </Button>
+        <Button asChild variant="outline" size="lg">
+          <Link href="/parametres">Configurer les parametres</Link>
         </Button>
       </div>
 
       {/* Variables Section */}
       <div className="mt-16">
-        <h2 className="text-2xl font-bold mb-6">Variables generees</h2>
+        <h2 className="text-2xl font-bold mb-2">Variables stochastiques generees</h2>
+        <p className="text-muted-foreground mb-6 text-sm">
+          Chaque variable suit une loi calibree sur les donnees historiques algeriennes.
+        </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <VariableCard
             variable="D_{s,t}(ω)"
             name="Demande sectorielle"
-            description="Demande par secteur : Residentiel, Industriel, Transport, Agriculture, Tertiaire"
+            description="Tendance polynomiale + erreur normale correlee (Cholesky) — 5 secteurs"
           />
           <VariableCard
             variable="h_{PV,t}(ω)"
             name="Disponibilite solaire"
-            description="Facteur de capacite solaire photovoltaique"
+            description="Beta(5.76, 3.84) — μ = 60%, borne [0,1]"
           />
           <VariableCard
             variable="h_{Wind,t}(ω)"
             name="Disponibilite eolienne"
-            description="Facteur de capacite eolienne"
+            description="Normale tronquee N[0,1](0.296, 0.035²)"
           />
           <VariableCard
             variable="c^{inv}_{PV,t}(ω)"
             name="CAPEX solaire"
-            description="Cout d&apos;investissement PV"
+            description="GBM : c₀ = 800 €/kW, μ = −5%/an, σ = 10%"
           />
           <VariableCard
             variable="P^{gaz}_t(ω)"
             name="Prix du gaz"
-            description="Prix du gaz naturel"
+            description="GARCH(1,1) : α+β = 0.95, forte persistance"
           />
           <VariableCard
             variable="c̃^{op}_{i,t}(ω)"
             name="Cout operationnel"
-            description="Cout operationnel complet"
+            description="Gaz = c_tech + P_gaz ; autres fossiles : N(c̄, σ²)"
           />
         </div>
+      </div>
+
+      {/* Interpretation shortcut */}
+      <div className="mt-12 p-6 rounded-xl border border-border bg-secondary/20 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h3 className="font-semibold mb-1">Interpretation automatique des resultats</h3>
+          <p className="text-sm text-muted-foreground">
+            Apres la simulation, obtenez une analyse textuelle complete : tendances, volatilites,
+            scenario pessimiste et convergence MC vs LHS.
+          </p>
+        </div>
+        <Button asChild variant="secondary">
+          <Link href="/interpretation">
+            <FileText className="mr-2 h-4 w-4" />
+            Voir l&apos;interpretation
+          </Link>
+        </Button>
       </div>
     </div>
   )

@@ -1,16 +1,14 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { Navigation } from '@/components/navigation'
 import { SimulationProvider } from '@/lib/simulation-context'
+import Script from 'next/script'
+import Image from 'next/image'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
-
 export const metadata: Metadata = {
-  title: 'Monte Carlo - Planification Energetique Algerie 2050',
-  description: 'Plateforme interactive de generation de scenarios Monte Carlo pour la planification energetique stochastique de l\'Algerie',
+  title: 'MC & LHS - Planification Energetique Algerie 2050',
+  description: 'Plateforme interactive de generation de scenarios stochastiques (Monte Carlo et Latin Hypercube Sampling) pour la planification energetique de l\'Algerie',
   generator: 'v0.app',
   icons: {
     icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
@@ -24,12 +22,16 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="fr" className="bg-background">
-      <body className="font-sans antialiased">
+    <html lang="fr" suppressHydrationWarning>
+      <body className="font-sans antialiased" suppressHydrationWarning>
+        <Script id="theme-init" strategy="beforeInteractive">{`(function(){var t=localStorage.getItem('theme');document.documentElement.classList.toggle('dark',t!=='light');})();`}</Script>
         <SimulationProvider>
-          <div className="flex min-h-screen">
+          <div className="flex min-h-screen bg-background">
             <Navigation />
             <main className="flex-1 ml-64 p-8">
+              <div className="fixed top-4 right-6 z-50">
+                <Image src="/placeholder-logo.png" alt="Logo" width={48} height={48} className="object-contain" />
+              </div>
               {children}
             </main>
           </div>

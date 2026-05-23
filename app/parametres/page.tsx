@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useSimulation } from "@/lib/simulation-context"
-import { DEFAULT_PARAMS } from "@/lib/monte-carlo"
+import { DEFAULT_PARAMS, DEFAULT_DETERMINISTIC_PARAMS } from "@/lib/monte-carlo"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -317,7 +317,152 @@ export default function ParametresPage() {
             />
           </CardContent>
         </Card>
+
+        {/* Demand Polynomial Coefficients — section 4.2.2 / 6.2 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Coefficients de tendance de la demande</CardTitle>
+            <CardDescription>
+              D̂_s,t = A·t² + B·t + C avec t = annee − 1980 — section 5.2
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <p className="text-sm font-medium mb-3">Residentiel (quadratique)</p>
+              <div className="grid sm:grid-cols-4 gap-4">
+                <ParamInput id="demandResA" label="A (t²)" value={params.demandResA} onChange={(v) => updateParam("demandResA", v)} min={-100} max={100} step={0.01} />
+                <ParamInput id="demandResB" label="B (t)" value={params.demandResB} onChange={(v) => updateParam("demandResB", v)} min={-1000} max={1000} step={0.01} />
+                <ParamInput id="demandResC" label="C (cte)" value={params.demandResC} onChange={(v) => updateParam("demandResC", v)} min={0} max={20000} step={0.01} />
+                <ParamInput id="demandResStd" label="σ (ktep)" value={params.demandResStd} onChange={(v) => updateParam("demandResStd", v)} min={1} max={10000} step={1} />
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium mb-3">Industriel (quadratique)</p>
+              <div className="grid sm:grid-cols-4 gap-4">
+                <ParamInput id="demandIndA" label="A (t²)" value={params.demandIndA} onChange={(v) => updateParam("demandIndA", v)} min={-100} max={100} step={0.01} />
+                <ParamInput id="demandIndB" label="B (t)" value={params.demandIndB} onChange={(v) => updateParam("demandIndB", v)} min={-1000} max={1000} step={0.01} />
+                <ParamInput id="demandIndC" label="C (cte)" value={params.demandIndC} onChange={(v) => updateParam("demandIndC", v)} min={0} max={20000} step={0.01} />
+                <ParamInput id="demandIndStd" label="σ (ktep)" value={params.demandIndStd} onChange={(v) => updateParam("demandIndStd", v)} min={1} max={10000} step={1} />
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium mb-3">Transport (quadratique)</p>
+              <div className="grid sm:grid-cols-4 gap-4">
+                <ParamInput id="demandTraA" label="A (t²)" value={params.demandTraA} onChange={(v) => updateParam("demandTraA", v)} min={-100} max={100} step={0.01} />
+                <ParamInput id="demandTraB" label="B (t)" value={params.demandTraB} onChange={(v) => updateParam("demandTraB", v)} min={-1000} max={1000} step={0.01} />
+                <ParamInput id="demandTraC" label="C (cte)" value={params.demandTraC} onChange={(v) => updateParam("demandTraC", v)} min={0} max={20000} step={0.01} />
+                <ParamInput id="demandTraStd" label="σ (ktep)" value={params.demandTraStd} onChange={(v) => updateParam("demandTraStd", v)} min={1} max={10000} step={1} />
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium mb-3">Agriculture (lineaire, A=0)</p>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <ParamInput id="demandAgrB" label="B (t)" value={params.demandAgrB} onChange={(v) => updateParam("demandAgrB", v)} min={-500} max={500} step={0.01} />
+                <ParamInput id="demandAgrC" label="C (cte)" value={params.demandAgrC} onChange={(v) => updateParam("demandAgrC", v)} min={-5000} max={5000} step={0.01} />
+                <ParamInput id="demandAgrStd" label="σ (ktep)" value={params.demandAgrStd} onChange={(v) => updateParam("demandAgrStd", v)} min={1} max={2000} step={1} />
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium mb-3">Tertiaire (lineaire, A=0)</p>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <ParamInput id="demandTerB" label="B (t)" value={params.demandTerB} onChange={(v) => updateParam("demandTerB", v)} min={-500} max={500} step={0.01} />
+                <ParamInput id="demandTerC" label="C (cte)" value={params.demandTerC} onChange={(v) => updateParam("demandTerC", v)} min={-5000} max={5000} step={0.01} />
+                <ParamInput id="demandTerStd" label="σ (ktep)" value={params.demandTerStd} onChange={(v) => updateParam("demandTerStd", v)} min={1} max={2000} step={1} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Fossil Operational Costs */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Couts operationnels fossiles</CardTitle>
+            <CardDescription>
+              Distributions normales N(μ, (5%·μ)²) en DA/tep — section 5.8
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid sm:grid-cols-3 gap-4">
+            <ParamInput
+              id="oilOpCostMean"
+              label="Petrole brut μ (DA/tep)"
+              value={params.oilOpCostMean}
+              onChange={(val) => updateParam("oilOpCostMean", val)}
+              min={10000}
+              max={100000}
+              hint={`Defaut: ${DEFAULT_PARAMS.oilOpCostMean} · σ = 5%`}
+            />
+            <ParamInput
+              id="gplOpCostMean"
+              label="GPL μ (DA/tep)"
+              value={params.gplOpCostMean}
+              onChange={(val) => updateParam("gplOpCostMean", val)}
+              min={10000}
+              max={100000}
+              hint={`Defaut: ${DEFAULT_PARAMS.gplOpCostMean} · σ = 5%`}
+            />
+            <ParamInput
+              id="condensatOpCostMean"
+              label="Condensat μ (DA/tep)"
+              value={params.condensatOpCostMean}
+              onChange={(val) => updateParam("condensatOpCostMean", val)}
+              min={10000}
+              max={100000}
+              hint={`Defaut: ${DEFAULT_PARAMS.condensatOpCostMean} · σ = 5%`}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Deterministic Parameters (read-only) */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Parametres deterministes</CardTitle>
+            <CardDescription>
+              Contraintes fixes du modele d&apos;optimisation — section 4.8 / 5.10
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+              <DetParam label="ηc (rendement charge)" value="0.92" />
+              <DetParam label="ηd (rendement decharge)" value="0.92" />
+              <DetParam label="ENDC (cible CO₂)" value="171.9 MtCO2eq" />
+              <DetParam label="Taux d'actualisation δ" value="2%" />
+              <DetParam label="Production fossile initiale" value="120 000 ktep" />
+              <DetParam label="Big-M" value="200 000 ktep" />
+            </div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Cibles EnR (%)</p>
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <DetParam label="α 2024" value={`${(DEFAULT_DETERMINISTIC_PARAMS.renewableTarget2024 * 100).toFixed(0)}%`} />
+              <DetParam label="α 2030" value={`${(DEFAULT_DETERMINISTIC_PARAMS.renewableTarget2030 * 100).toFixed(0)}%`} />
+              <DetParam label="α 2050" value={`${(DEFAULT_DETERMINISTIC_PARAMS.renewableTarget2050 * 100).toFixed(0)}%`} />
+            </div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Facteurs d&apos;emission (tCO₂/tep)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <DetParam label="Gaz" value={`${DEFAULT_DETERMINISTIC_PARAMS.emissionFactorGas}`} />
+              <DetParam label="Petrole" value={`${DEFAULT_DETERMINISTIC_PARAMS.emissionFactorOil}`} />
+              <DetParam label="GPL" value={`${DEFAULT_DETERMINISTIC_PARAMS.emissionFactorGPL}`} />
+              <DetParam label="Condensat" value={`${DEFAULT_DETERMINISTIC_PARAMS.emissionFactorCondensat}`} />
+            </div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Couts techniques (USD/MWh)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <DetParam label="Gaz" value={`${DEFAULT_DETERMINISTIC_PARAMS.techCostGas}`} />
+              <DetParam label="Petrole" value={`${DEFAULT_DETERMINISTIC_PARAMS.techCostOil}`} />
+              <DetParam label="GPL" value={`${DEFAULT_DETERMINISTIC_PARAMS.techCostGPL}`} />
+              <DetParam label="Condensat" value={`${DEFAULT_DETERMINISTIC_PARAMS.techCostCondensat}`} />
+              <DetParam label="PV" value={`${DEFAULT_DETERMINISTIC_PARAMS.techCostPV}`} />
+              <DetParam label="Eolien" value={`${DEFAULT_DETERMINISTIC_PARAMS.techCostWind}`} />
+            </div>
+          </CardContent>
+        </Card>
       </div>
+    </div>
+  )
+}
+
+function DetParam({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="p-3 rounded-lg bg-secondary/30 border border-border">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold">{value}</p>
     </div>
   )
 }
