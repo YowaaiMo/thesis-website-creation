@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useSimulation } from "@/lib/simulation-context"
-import { runSimulation, DEFAULT_PARAMS, type SimulationParams } from "@/lib/monte-carlo"
+import { runSimulation, DEFAULT_PARAMS, type SimulationParams, type SimulationResult } from "@/lib/monte-carlo"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -22,7 +22,7 @@ import {
 export default function SensibilitePage() {
   const { result, params } = useSimulation()
   const [testParams, setTestParams] = useState<SimulationParams>({ ...params, numScenarios: 100 })
-  const [comparisonResult, setComparisonResult] = useState<{ baseline: typeof result; modified: typeof result } | null>(null)
+  const [comparisonResult, setComparisonResult] = useState<{ baseline: SimulationResult; modified: SimulationResult } | null>(null)
   const [isRunning, setIsRunning] = useState(false)
 
   const runSensitivityTest = () => {
