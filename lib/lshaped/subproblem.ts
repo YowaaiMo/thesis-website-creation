@@ -10,26 +10,31 @@ import {
   DEFAULT_PERIODS,
   DEFAULT_PERIOD_SPANS,
   INITIAL_CAPACITY,
+  BATTERY_PLANNING_AV,
   discountFactor,
   type LShapedScenario,
   type SubproblemResult,
   type Cut,
+  type GhgCut,
 } from './types'
 
 // Fossil availability factor (from spec)
 const FOSSIL_AV = 0.85
 
 // Effective capacity for technology i given installed x and scenario data
+// Battery uses BATTERY_PLANNING_AV (0.30) — see types.ts for justification.
+// This replaces the previous 0.15 heuristic with a value grounded in:
+//   η_round × utilization_factor = 0.846 × 0.355 ≈ 0.30
 function effectiveCap(
   techIdx: number,
   x: number,            // ktep/year installed
   hPV: number,
   hWind: number,
 ): number {
-  if (techIdx === 0) return hPV * x           // PV: scaled by solar availability
-  if (techIdx === 1) return hWind * x         // Wind: scaled by wind availability
-  if (techIdx === 6) return 0.15 * x          // Battery: low effective output
-  return FOSSIL_AV * x                        // Fossil: 85% availability
+  if (techIdx === 0) return hPV * x              // PV: stochastic solar availability
+  if (techIdx === 1) return hWind * x            // Wind: stochastic wind availability
+  if (techIdx === 6) return BATTERY_PLANNING_AV * x  // Battery: planning availability model
+  return FOSSIL_AV * x                           // Fossil: 85% availability
 }
 
 // Operational cost of technology i in period p for a scenario
@@ -57,8 +62,10 @@ export function solveSubproblem(
   let totalOpCost = 0
   let totalGhg = 0
 
-  // beta[i][t] = ∂Q/∂x_{i,t} — accumulated across periods
+  // beta[i][t] = ∂Q/∂x_{i,t} — accumulated across periods (discounted)
   const beta: number[][] = Array.from({ length: N_TECH }, () => Array(nPeriods).fill(0))
+  // betaGhg[i][t] = ∂Z₂/∂x_{i,t} — accumulated across periods (undiscounted)
+  const betaGhg: number[][] = Array.from({ length: N_TECH }, () => Array(nPeriods).fill(0))
 
   let alphaAcc = 0  // accumulator for alpha before subtracting beta·x̄
 
@@ -131,19 +138,38 @@ export function solveSubproblem(
     totalOpCost += periodOpCost
     totalGhg += periodGhg
 
-    // Cut gradient: ∂Q/∂x_{i,pIdx}
-    // For PV: ∂(cap)/∂x = h_PV * span; for Wind: h_Wind * span; fossil: FOSSIL_AV * span; bat: 0.15*span
-    // ∂Q/∂x_{i,pIdx} = -shadowCap[i] * ∂(effectiveCap)/∂x_{i,pIdx}
+    // Cut gradient: ∂Q/∂x_{i,pIdx} = -μ_i · ∂(effectiveCap_i)/∂x_{i,pIdx}
+    // Must use same availability factors as effectiveCap() to keep cuts consistent.
     const dcap_dx = Array.from({ length: N_TECH }, (_, i) => {
       if (i === 0) return pd.hPV * span
       if (i === 1) return pd.hWind * span
-      if (i === 6) return 0.15 * span
+      if (i === 6) return BATTERY_PLANNING_AV * span  // consistent with effectiveCap
       return FOSSIL_AV * span
     })
 
     for (let i = 0; i < N_TECH; i++) {
       // ∂Q_period/∂x_{i,pIdx} = -shadowCap[i] * dcap_dx[i] * disc
       beta[i][pIdx] += -shadowCap[i] * dcap_dx[i] * disc
+    }
+
+    // GHG gradient: ∂Z₂_period/∂x_{i,pIdx} = (EF_i - EF_marginal) × dcap_dx_i
+    // EF of marginal technology (0 if system in deficit — deficit has no emissions)
+    let EF_marginal = 0
+    if (deficit <= 1e-6) {
+      let marginalCost = -Infinity
+      for (const i of order) {
+        if (production[i] > 1e-6 && opCosts[i] > marginalCost) {
+          marginalCost = opCosts[i]
+          EF_marginal = EMISSION_FACTOR[TECHNOLOGIES[i]]
+        }
+      }
+    }
+    for (let i = 0; i < N_TECH; i++) {
+      const atCapacity = production[i] >= caps[i] - 1e-6 && caps[i] > 1e-9
+      if (atCapacity) {
+        // NO discount factor — Z₂ is a cumulative physical quantity (MtCO₂)
+        betaGhg[i][pIdx] += (EMISSION_FACTOR[TECHNOLOGIES[i]] - EF_marginal) * dcap_dx[i]
+      }
     }
 
     alphaAcc += periodOpCost
@@ -166,11 +192,25 @@ export function solveSubproblem(
     }
   }
 
+  // alphaGhg = Z₂(x̄, ω) − Σ_{i,t} betaGhg[i][t] · x̄[i][t]
+  let alphaGhg = totalGhg
+  for (let i = 0; i < N_TECH; i++)
+    for (let pIdx = 0; pIdx < nPeriods; pIdx++)
+      alphaGhg -= betaGhg[i][pIdx] * cumX[i][pIdx]
+
   const cut: Cut = {
     iteration: 0,  // filled by caller
     scenarioIdx,
     alpha,
     beta,
+    active: true,
+  }
+
+  const ghgCut: GhgCut = {
+    iteration: 0,  // filled by caller
+    scenarioIdx,
+    alphaGhg,
+    betaGhg,
     active: true,
   }
 
@@ -180,67 +220,6 @@ export function solveSubproblem(
     totalOpCost,
     totalGhg,
     cut,
-  }
-}
-
-// Solve with GHG constraint: add emission limit ε (MtCO2) — used for Pareto
-export function solveSubproblemWithGHG(
-  scenarioIdx: number,
-  scenario: LShapedScenario,
-  cumX: number[][],
-  lambdaD: number,
-  ghgLimit: number,       // MtCO2 total over planning horizon (per scenario share)
-): SubproblemResult {
-  // First solve unconstrained
-  const base = solveSubproblem(scenarioIdx, scenario, cumX, lambdaD)
-
-  // If GHG within limit, return as-is
-  if (base.totalGhg <= ghgLimit + 1e-6) return base
-
-  // Otherwise: redo dispatch with GHG-aware merit order
-  // Simple approach: penalize fossil by marginal GHG cost to enforce budget
-  // GHG penalty λ_e chosen so that emissions budget is met
-  // Binary search for the right penalty
-  const nPeriods = scenario.periods.length
-  let loPenalty = 0
-  let hiPenalty = 10_000  // M€/MtCO2
-
-  for (let iter = 0; iter < 30; iter++) {
-    const midPen = (loPenalty + hiPenalty) / 2
-    const ghg = dispatchWithEmPenalty(scenario, cumX, lambdaD, midPen)
-    if (ghg > ghgLimit) loPenalty = midPen
-    else hiPenalty = midPen
-  }
-
-  const emPenalty = (loPenalty + hiPenalty) / 2
-  // Re-run solver with emission penalty applied as extra op cost
-  const adjScenario = addEmissionPenalty(scenario, emPenalty)
-  return solveSubproblem(scenarioIdx, adjScenario, cumX, lambdaD)
-}
-
-function dispatchWithEmPenalty(
-  scenario: LShapedScenario,
-  cumX: number[][],
-  lambdaD: number,
-  emPenalty: number,
-): number {
-  const adj = addEmissionPenalty(scenario, emPenalty)
-  const r = solveSubproblem(0, adj, cumX, lambdaD)
-  return r.totalGhg
-}
-
-function addEmissionPenalty(
-  scenario: LShapedScenario,
-  emPenalty: number,   // M€/MtCO2
-): LShapedScenario {
-  return {
-    ...scenario,
-    periods: scenario.periods.map(pd => ({
-      ...pd,
-      gasOpCost:  pd.gasOpCost  + emPenalty * EMISSION_FACTOR['Gaz'],
-      oilOpCost:  pd.oilOpCost  + emPenalty * EMISSION_FACTOR['Pétrole'],
-      gplOpCost:  pd.gplOpCost  + emPenalty * EMISSION_FACTOR['GPL'],
-      condOpCost: pd.condOpCost + emPenalty * EMISSION_FACTOR['Condensat'],
-    })),
+    ghgCut,
   }
 }

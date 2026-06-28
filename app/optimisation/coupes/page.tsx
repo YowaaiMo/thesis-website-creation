@@ -1,214 +1,232 @@
 "use client"
 
-import Link from "next/link"
 import { useState } from "react"
 import { useLShaped } from "@/lib/lshaped-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Play, Scissors } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 import { TECHNOLOGIES, DEFAULT_PERIODS } from "@/lib/lshaped/types"
-import {
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine
-} from "recharts"
+import Link from "next/link"
 
 export default function CoupesPage() {
   const { result } = useLShaped()
-  const [selScenario, setSelScenario] = useState(0)
+  const [selectedIter, setSelectedIter] = useState<number | null>(null)
 
-  if (!result) {
-    return (
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Coupes generees</h1>
-          <p className="text-muted-foreground">Coupes d'optimalite (multicoupe) θ_ω ≥ α + β·x</p>
-        </div>
-        <Card>
-          <CardContent className="py-16 text-center text-muted-foreground">
-            <Play className="h-8 w-8 mx-auto mb-4 opacity-40" />
-            <p>Aucune resolution. Lancez le solveur d'abord.</p>
-            <Button asChild variant="outline" className="mt-4">
-              <Link href="/optimisation/resolution">Resolution</Link>
-            </Button>
-          </CardContent>
-        </Card>
+  if (!result) return (
+    <div className="max-w-5xl mx-auto">
+      <div className="p-6 rounded-lg border border-yellow-500/40 bg-yellow-500/5 flex gap-3">
+        <AlertCircle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+        <p className="text-sm">
+          Aucun résultat disponible. Lancez la résolution depuis{" "}
+          <Link href="/optimisation/resolution" className="underline text-chart-4">l'onglet 1</Link>.
+        </p>
       </div>
-    )
+    </div>
+  )
+
+  const lastIter = result.iterations[result.iterations.length - 1]
+  const activeIt = selectedIter !== null
+    ? result.iterations[selectedIter - 1]
+    : lastIter
+  const allCuts = result.iterations.flatMap(it => it.cuts)
+  const scenarios = result.scenarios  // local alias — TypeScript closure narrowing workaround
+
+  function formatCutEquation(w: number): string {
+    const sr = activeIt?.subproblems[w]
+    if (!sr) return "—"
+    const alpha = sr.cut.alpha
+    const terms: string[] = []
+    TECHNOLOGIES.forEach((tech, i) => {
+      DEFAULT_PERIODS.forEach((yr, t) => {
+        const b = sr.cut.beta[i]?.[t] ?? 0
+        if (Math.abs(b) > 1e-6) {
+          const sign = b < 0 ? " − " : " + "
+          terms.push(`${sign}${Math.abs(b).toFixed(3)}·x_{${tech},${yr}}`)
+        }
+      })
+    })
+    return `θ_{ω${w + 1}} ≥ ${alpha.toLocaleString(undefined, { maximumFractionDigits: 0 })}${terms.slice(0, 5).join("")}${terms.length > 5 ? " + …" : ""}`
   }
 
-  const allCuts = result.iterations.flatMap(it => it.cuts)
-  const nScenarios = result.scenarios.length
-
-  // All cuts for selected scenario
-  const scenarioCuts = allCuts.filter(c => c.scenarioIdx === selScenario)
-
-  // For visualisation: plot alpha vs iteration for each scenario
-  const cutEvolution = result.iterations.map(it => {
-    const row: Record<string, number> = { k: it.k }
-    for (let w = 0; w < nScenarios; w++) {
-      const cut = it.cuts.find(c => c.scenarioIdx === w)
-      if (cut) row[`ω${w + 1}`] = parseFloat(cut.alpha.toFixed(2))
-    }
-    return row
-  })
+  function interpDualAnalysis(): string {
+    const subs = lastIter.subproblems
+    const avgPiDem = subs.reduce((s, sr, w) => s + scenarios[w].prob * (sr.periods[0]?.shadowDemand ?? 0), 0)
+    const pvPi = subs.reduce((s, sr, w) => s + scenarios[w].prob * Math.abs(sr.periods[0]?.shadowCap[0] ?? 0), 0)
+    const windPi = subs.reduce((s, sr, w) => s + scenarios[w].prob * Math.abs(sr.periods[0]?.shadowCap[1] ?? 0), 0)
+    const batPi = subs.reduce((s, sr, w) => s + scenarios[w].prob * Math.abs(sr.periods[0]?.shadowCap[6] ?? 0), 0)
+    const dom = pvPi > windPi && pvPi > batPi ? "PV" : windPi > batPi ? "Éolien" : "Batterie"
+    return `π_Dem ≈ ${avgPiDem.toFixed(3)} M€/ktep (coût marginal demande). Contrainte la plus active en τ=2024 : ${dom} (duale la plus élevée). Investir dans ${dom} offrirait le plus grand gain d'efficacité à la première période.`
+  }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <Scissors className="h-6 w-6 text-chart-4" />
-          <h1 className="text-3xl font-bold">Coupes d'optimalite (Multicoupe)</h1>
-        </div>
-        <p className="text-muted-foreground">
-          {allCuts.length} coupes generees · {nScenarios} scenarios ·{" "}
-          θ<sub>ω</sub> ≥ α<sup>k</sup><sub>ω</sub> + (β<sup>k</sup><sub>ω</sub>)<sup>T</sup> x
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold mb-1">Onglet 5 — Variables duales et coupes de Benders</h1>
+        <p className="text-sm text-muted-foreground">
+          {allCuts.length} coupes d'optimalité · Multicoupe : une coupe par scénario par itération
         </p>
       </div>
 
-      {/* Global summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        {[
-          { l: "Coupes totales", v: allCuts.length.toString() },
-          { l: "Iterations", v: result.iterations.length.toString() },
-          { l: "Scenarios", v: nScenarios.toString() },
-          { l: "Coupes/iteration", v: (allCuts.length / result.iterations.length).toFixed(1) },
-        ].map(d => (
-          <div key={d.l} className="p-4 bg-secondary/30 rounded-xl">
-            <p className="text-xs text-muted-foreground">{d.l}</p>
-            <p className="text-2xl font-bold text-chart-4">{d.v}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Alpha evolution chart */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Evolution de α<sup>k</sup><sub>ω</sub> par scenario</CardTitle>
-          <CardDescription>La constante de coupe monte (borne inferieure s'ameliore) avec les iterations</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm mb-2">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground text-xs">
-                  <th className="text-left py-2 pr-4">k</th>
-                  {Array.from({ length: nScenarios }, (_, w) => (
-                    <th key={w} className="text-right py-2 px-3">ω={w + 1}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.iterations.map(it => (
-                  <tr key={it.k} className="border-b border-border/40 hover:bg-secondary/10">
-                    <td className="py-2 pr-4 font-mono">{it.k}</td>
-                    {it.cuts.map((c, w) => (
-                      <td key={w} className="py-2 px-3 text-right font-mono text-xs">
-                        {c.alpha.toFixed(1)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Per-scenario cut detail */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Detail des coupes par scenario</CardTitle>
-          <CardDescription>{"Coefficients β_{i,t} = ∂Q/∂x_{i,t} (gradient de la coupe)"}</CardDescription>
-          <div className="flex gap-2 mt-2 flex-wrap">
-            {Array.from({ length: nScenarios }, (_, w) => (
-              <button
-                key={w}
-                onClick={() => setSelScenario(w)}
-                className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                  w === selScenario
-                    ? "bg-chart-4 text-white"
-                    : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
-                }`}
-              >
-                ω={w + 1}
-              </button>
-            ))}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left py-2 pr-4">k</th>
-                  <th className="text-right py-2 px-3">α</th>
-                  {TECHNOLOGIES.flatMap((t, i) =>
-                    DEFAULT_PERIODS.map((y, p) => (
-                      <th key={`${i}-${p}`} className="text-right py-2 px-1 whitespace-nowrap">
-                        {`β_${t.slice(0, 3)},${y}`}
-                      </th>
-                    ))
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {scenarioCuts.map(cut => (
-                  <tr key={cut.iteration} className="border-b border-border/40 hover:bg-secondary/10">
-                    <td className="py-1.5 pr-4 font-mono">{cut.iteration}</td>
-                    <td className="py-1.5 px-3 text-right font-mono">{cut.alpha.toFixed(2)}</td>
-                    {TECHNOLOGIES.flatMap((_t, i) =>
-                      DEFAULT_PERIODS.map((_y, p) => (
-                        <td key={`${i}-${p}`} className="py-1.5 px-1 text-right font-mono">
-                          {cut.beta[i][p] !== 0
-                            ? <span style={{ color: cut.beta[i][p] < 0 ? "#22c55e" : "#f97316" }}>
-                                {cut.beta[i][p].toExponential(1)}
-                              </span>
-                            : <span className="text-muted-foreground">0</span>
-                          }
-                        </td>
-                      ))
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-muted-foreground mt-3">
-            β &lt; 0 → investir dans cette technologie reduit le cout operationnel (coupe incitative).
-            β = 0 → technologie non contraignante dans ce scenario/periode.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Master problem LP status */}
+      {/* Table 6.15 — Variables duales */}
       <Card>
-        <CardHeader>
-          <CardTitle>Probleme maitre — progression des bornes inferieures</CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Table 6.15 — Variables duales π^ω_τ (itération k = {lastIter.k})
+          </CardTitle>
+          <CardDescription>
+            π_Dem : valeur duale contrainte de demande · π_i : valeur duale contrainte de capacité
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-muted-foreground text-xs">
-                  <th className="text-left py-2 pr-4">k</th>
-                  <th className="text-right py-2 px-4">LB (M€)</th>
-                  <th className="text-right py-2 px-4">Σ θ_ω</th>
-                  <th className="text-right py-2 px-4">CAPEX (M€)</th>
-                  <th className="text-right py-2 pl-4">Nb coupes actives</th>
+                <tr className="border-b border-border text-xs text-muted-foreground">
+                  <th className="text-left py-2 pr-4">ω</th>
+                  <th className="text-right py-2 px-3">π_Dem (τ₁)</th>
+                  <th className="text-right py-2 px-3">π_PV (τ₁)</th>
+                  <th className="text-right py-2 px-3">π_Wind (τ₁)</th>
+                  <th className="text-right py-2 px-3">π_Gaz (τ₁)</th>
+                  <th className="text-right py-2 px-3">π_Bat (τ₁)</th>
                 </tr>
               </thead>
               <tbody>
-                {result.iterations.map(it => {
-                  const thetaSum = it.master.theta.reduce((s, v) => s + v, 0)
-                  const capex = it.master.investCost
-                  const nCuts = result.iterations.slice(0, it.k).reduce((s, i2) => s + i2.cuts.length, 0)
+                {lastIter.subproblems.map((sr, w) => (
+                  <tr key={w} className="border-b border-border/40 hover:bg-secondary/10">
+                    <td className="py-2 pr-4 font-medium">ω{w + 1}</td>
+                    <td className="py-2 px-3 text-right font-mono text-xs text-chart-4">
+                      {(sr.periods[0]?.shadowDemand ?? 0).toFixed(4)}
+                    </td>
+                    {[0, 1, 2, 6].map(i => {
+                      const v = sr.periods[0]?.shadowCap[i] ?? 0
+                      return (
+                        <td key={i} className={`py-2 px-3 text-right font-mono text-xs ${Math.abs(v) > 1e-6 ? "font-semibold text-chart-4" : "text-muted-foreground"}`}>
+                          {Math.abs(v) > 1e-6 ? v.toFixed(4) : "—"}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 p-3 bg-secondary/20 rounded-lg text-xs text-muted-foreground">
+            {interpDualAnalysis()}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Table 6.16 — Coefficients de coupe + formule */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Table 6.16 — Coefficients de la coupe d'optimalité (itération k = {activeIt?.k ?? "—"})
+          </CardTitle>
+          <CardDescription>
+            θ_ω ≥ α^k_ω + (β^k_ω)ᵀ x — multicoupe de Benders, une coupe par scénario ω
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* Iteration selector */}
+          <div className="flex gap-1.5 mb-4 flex-wrap">
+            {result.iterations.map(it => (
+              <button key={it.k}
+                onClick={() => setSelectedIter(it.k)}
+                className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                  (activeIt?.k) === it.k
+                    ? "bg-chart-4 text-white border-chart-4"
+                    : "border-border hover:border-chart-4 text-muted-foreground"
+                }`}
+              >
+                k = {it.k}
+              </button>
+            ))}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted-foreground">
+                  <th className="text-left py-2 pr-4">ω</th>
+                  <th className="text-right py-2 px-3">α^k_ω (M€)</th>
+                  <th className="text-right py-2 px-3">β_PV (τ₁)</th>
+                  <th className="text-right py-2 px-3">β_Wind (τ₁)</th>
+                  <th className="text-right py-2 px-3">β_Gaz (τ₁)</th>
+                  <th className="text-right py-2 px-3">β_Bat (τ₁)</th>
+                  <th className="text-right py-2 px-3">‖β‖₁</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeIt?.subproblems.map((sr, w) => {
+                  const normBeta = sr.cut.beta.flat().reduce((s, b) => s + Math.abs(b), 0)
                   return (
-                    <tr key={it.k} className="border-b border-border/40 hover:bg-secondary/10">
-                      <td className="py-2 pr-4 font-mono">{it.k}</td>
-                      <td className="py-2 px-4 text-right font-mono" style={{ color: "#22c55e" }}>{it.LB.toFixed(1)}</td>
-                      <td className="py-2 px-4 text-right font-mono">{thetaSum.toFixed(1)}</td>
-                      <td className="py-2 px-4 text-right font-mono">{capex.toFixed(1)}</td>
-                      <td className="py-2 pl-4 text-right font-mono">{nCuts}</td>
+                    <tr key={w} className="border-b border-border/40 hover:bg-secondary/10">
+                      <td className="py-2 pr-4 font-medium">ω{w + 1}</td>
+                      <td className="py-2 px-3 text-right font-mono text-xs text-chart-2 font-semibold">
+                        {sr.cut.alpha.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      {[0, 1, 2, 6].map(i => {
+                        const b = sr.cut.beta[i]?.[0] ?? 0
+                        return (
+                          <td key={i} className={`py-2 px-3 text-right font-mono text-xs ${b < -1e-6 ? "text-chart-2" : b > 1e-6 ? "text-chart-1" : "text-muted-foreground"}`}>
+                            {Math.abs(b) > 1e-6 ? b.toFixed(4) : "—"}
+                          </td>
+                        )
+                      })}
+                      <td className="py-2 px-3 text-right font-mono text-xs">{normBeta.toFixed(3)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Formule complète */}
+          <div className="mt-4 p-4 bg-secondary/10 rounded-xl overflow-x-auto">
+            <p className="text-xs text-muted-foreground mb-1">Exemple — ω₁, k = {activeIt?.k} :</p>
+            <p className="font-mono text-xs text-foreground leading-relaxed">{formatCutEquation(0)}</p>
+          </div>
+
+          <p className="text-xs text-muted-foreground mt-2">
+            β &lt; 0 → investir dans cette technologie réduit le coût de recours (coupe incitative).
+            β &gt; 0 → rare (peut indiquer une interaction de capacité).
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Table 6.17 — Historique coupes */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Table 6.17 — Historique complet des coupes
+          </CardTitle>
+          <CardDescription>{allCuts.length} coupes · Type : Optimalité (décomposition de Benders)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="max-h-72 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-background">
+                <tr className="border-b border-border text-xs text-muted-foreground">
+                  <th className="text-left py-2 pr-4">Iter. k</th>
+                  <th className="text-right py-2 px-4">Scénario ω</th>
+                  <th className="text-right py-2 px-4">α^k_ω (M€)</th>
+                  <th className="text-right py-2 px-4">‖β‖₁</th>
+                  <th className="text-left py-2 pl-4">Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allCuts.map((c, idx) => {
+                  const normBeta = c.beta.flat().reduce((s, b) => s + Math.abs(b), 0)
+                  return (
+                    <tr key={idx} className="border-b border-border/40 hover:bg-secondary/10">
+                      <td className="py-1.5 pr-4 font-medium">{c.iteration}</td>
+                      <td className="py-1.5 px-4 text-right">ω{c.scenarioIdx + 1}</td>
+                      <td className="py-1.5 px-4 text-right font-mono text-xs text-chart-2">
+                        {c.alpha.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="py-1.5 px-4 text-right font-mono text-xs">{normBeta.toFixed(3)}</td>
+                      <td className="py-1.5 pl-4 text-xs">
+                        <span className="px-2 py-0.5 rounded bg-chart-4/20 text-chart-4 font-medium">Optimalité</span>
+                      </td>
                     </tr>
                   )
                 })}
