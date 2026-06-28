@@ -1,69 +1,106 @@
-// Master problem LP solver using Big-M tableau simplex
-// Solves: min c'z  s.t.  A·z ≥ b,  z ≥ 0
-// where z = [Δx_{i,τ} for all i,τ | θ_ω for all ω]
+// Master problem LP solver — Big-M simplex with unified constraint handling
+//
+// Solves: min c'z  s.t.  A·z ≥ b,  0 ≤ z ≤ ub
+//
+// Constraint handling:
+//   b_i ≥ 0 → standard: A_i·z − s_i + a_i = b_i, a_i in initial basis (Big-M)
+//   b_i < 0 → negate row: (−A_i)·z + s_i = −b_i, s_i in initial basis (no Big-M needed)
+//
+// The sign-flip for b_i < 0 preserves the constraint: since s_i = −b_i + A_i·z ≥ 0
+// ↔ A_i·z ≥ b_i (original constraint). This allows Benders cuts with negative RHS
+// and investment/capacity bounds without any clamping.
 
-const BIG_M = 1e9
+// Reduced from 1e9 → 1e7 for better numerical conditioning.
+// With costs O(10^4–10^6 M€), BIG_M = 1e7 provides 10x safety margin.
+const BIG_M = 1e7
 
 /**
- * Minimise c'z subject to A·z ≥ b, z ≥ 0.
- * All constraints must be ≥-type and b ≥ 0 (assured by construction since
- * optimality-cut RHS α̃ are positive for the energy problem).
+ * General LP solver: min c'z  s.t.  A·z ≥ b,  0 ≤ z ≤ ub
  *
- * Returns x (length n_orig), optimal obj value, and solving status.
+ * Handles arbitrary b (positive or negative RHS).
+ * ub[j] = Infinity means no upper bound on z_j.
+ * Upper bounds z_j ≤ ub_j are converted to ≥ constraints: -z_j ≥ -ub_j (b < 0 path).
  */
 export function solveLPGe(
   nOrig: number,
   c: number[],
   A: number[][],
   b: number[],
+  ub?: number[],
 ): { x: number[]; obj: number; status: 'optimal' | 'infeasible' | 'unbounded' } {
-  const m = A.length
-  if (m === 0) {
-    // Unconstrained: all variables at 0 is optimal when c ≥ 0
-    return { x: Array(nOrig).fill(0), obj: 0, status: 'optimal' }
-  }
 
-  // Total variables: original (nOrig) + surplus (m) + artificial (m)
-  const nTot = nOrig + m + m
-  const iSurplus = (i: number) => nOrig + i
-  const iArt = (i: number) => nOrig + m + i
-
-  // Extend cost vector with Big-M for artificials
-  const cExt = Array(nTot).fill(0)
-  for (let j = 0; j < nOrig; j++) cExt[j] = c[j]
-  for (let i = 0; i < m; i++) cExt[iArt(i)] = BIG_M
-
-  // Build tableau: (m+1) rows × (nTot+1) cols
-  // Row 0: objective; rows 1..m: constraints
-  const tab: number[][] = []
-  // Objective row (initially the extended cost)
-  tab.push([...cExt, 0])
-  // Constraint rows: A·z - s + a = b
-  for (let i = 0; i < m; i++) {
-    const row = Array(nTot + 1).fill(0)
-    for (let j = 0; j < nOrig; j++) row[j] = A[i][j]
-    row[iSurplus(i)] = -1
-    row[iArt(i)] = 1
-    row[nTot] = b[i]
-    tab.push(row)
-  }
-
-  // Initial basis: artificials
-  const basis = Array.from({ length: m }, (_, i) => iArt(i))
-
-  // Update objective row: subtract BIG_M × each constraint row
-  // (makes reduced cost of artificials = 0 when basic)
-  for (let i = 0; i < m; i++) {
-    for (let j = 0; j <= nTot; j++) {
-      tab[0][j] -= BIG_M * tab[i + 1][j]
+  // Augment with upper-bound constraints: z_j ≤ ub_j → -z_j ≥ -ub_j (b < 0)
+  const Af: number[][] = [...A]
+  const bf: number[] = [...b]
+  if (ub) {
+    for (let j = 0; j < nOrig; j++) {
+      if (isFinite(ub[j])) {
+        const row = Array(nOrig).fill(0)
+        row[j] = -1
+        Af.push(row)
+        bf.push(-ub[j])
+      }
     }
   }
 
+  const m = Af.length
+  if (m === 0) {
+    return { x: Array(nOrig).fill(0), obj: 0, status: 'optimal' }
+  }
+
+  // Classify: b_i >= 0 needs artificial; b_i < 0 uses negated-row surplus
+  const needsArt = bf.map(bi => bi >= 0)
+  const nArt = needsArt.filter(Boolean).length
+
+  // Global index of artificial variable for row i (only if needsArt[i])
+  const artOf: number[] = []
+  let aC = 0
+  for (let i = 0; i < m; i++) artOf.push(needsArt[i] ? nOrig + m + aC++ : -1)
+
+  const nTot = nOrig + m + nArt
+
+  // Extended cost vector: Big-M penalty for artificials only
+  const cExt = Array(nTot).fill(0)
+  for (let j = 0; j < nOrig; j++) cExt[j] = c[j]
+  for (let i = 0; i < m; i++) if (needsArt[i]) cExt[artOf[i]] = BIG_M
+
+  // Build tableau: row 0 = objective, rows 1..m = constraints
+  const tab: number[][] = [Array(nTot + 1).fill(0)]
+  for (let j = 0; j <= nTot; j++) tab[0][j] = cExt[j]
+
+  for (let i = 0; i < m; i++) {
+    const row = Array(nTot + 1).fill(0)
+    if (needsArt[i]) {
+      // b_i >= 0: A_i·z − s_i + a_i = b_i, artificial a_i in basis
+      for (let j = 0; j < nOrig; j++) row[j] = Af[i][j]
+      row[nOrig + i] = -1          // surplus coefficient
+      row[artOf[i]] = +1           // artificial coefficient
+      row[nTot] = bf[i]            // RHS = b_i >= 0
+    } else {
+      // b_i < 0: negate row → (−A_i)·z + s_i = −b_i, surplus in basis
+      for (let j = 0; j < nOrig; j++) row[j] = -Af[i][j]
+      row[nOrig + i] = +1          // surplus coefficient (positive after negation)
+      row[nTot] = -bf[i]           // RHS = −b_i > 0  ✓
+    }
+    tab.push(row)
+  }
+
+  // Initial basis: artificial if b_i >= 0, surplus if b_i < 0
+  const basis = Array.from({ length: m }, (_, i) =>
+    needsArt[i] ? artOf[i] : nOrig + i
+  )
+
+  // Update objective row to eliminate artificial basis variables (standard Big-M setup)
+  for (let i = 0; i < m; i++) {
+    if (!needsArt[i]) continue
+    for (let j = 0; j <= nTot; j++) tab[0][j] -= BIG_M * tab[i + 1][j]
+  }
+
   const EPS = 1e-9
-  const MAX_ITER = 5000
+  const MAX_ITER = 10_000
 
   for (let iter = 0; iter < MAX_ITER; iter++) {
-    // Dantzig pivot selection: most negative reduced cost
+    // Dantzig pivot: most negative reduced cost
     let enterCol = -1
     let minRC = -EPS
     for (let j = 0; j < nTot; j++) {
@@ -78,30 +115,26 @@ export function solveLPGe(
       const aij = tab[i][enterCol]
       if (aij > EPS) {
         const ratio = tab[i][nTot] / aij
-        if (ratio < minRatio - EPS) {
-          minRatio = ratio
-          leaveRow = i
-        }
+        if (ratio < minRatio - EPS) { minRatio = ratio; leaveRow = i }
       }
     }
     if (leaveRow === -1) return { x: [], obj: -Infinity, status: 'unbounded' }
 
     // Pivot
     basis[leaveRow - 1] = enterCol
-    const pivot = tab[leaveRow][enterCol]
-    for (let j = 0; j <= nTot; j++) tab[leaveRow][j] /= pivot
-
+    const piv = tab[leaveRow][enterCol]
+    for (let j = 0; j <= nTot; j++) tab[leaveRow][j] /= piv
     for (let i = 0; i <= m; i++) {
       if (i === leaveRow) continue
-      const factor = tab[i][enterCol]
-      if (Math.abs(factor) < EPS) continue
-      for (let j = 0; j <= nTot; j++) tab[i][j] -= factor * tab[leaveRow][j]
+      const f = tab[i][enterCol]
+      if (Math.abs(f) < EPS) continue
+      for (let j = 0; j <= nTot; j++) tab[i][j] -= f * tab[leaveRow][j]
     }
   }
 
-  // Check feasibility: no artificial should remain basic with positive value
+  // Feasibility check: no artificial in basis with positive value
   for (let i = 0; i < m; i++) {
-    if (basis[i] >= nOrig + m && tab[i + 1][nTot] > 1e-6) {
+    if (needsArt[i] && basis[i] >= nOrig + m && tab[i + 1][nTot] > 1e-6) {
       return { x: [], obj: Infinity, status: 'infeasible' }
     }
   }
@@ -109,36 +142,41 @@ export function solveLPGe(
   // Extract primal solution
   const x = Array(nOrig).fill(0)
   for (let i = 0; i < m; i++) {
-    const bv = basis[i]
-    if (bv < nOrig) x[bv] = Math.max(0, tab[i + 1][nTot])
+    if (basis[i] < nOrig) x[basis[i]] = Math.max(0, tab[i + 1][nTot])
   }
 
-  // Compute objective directly from primal (avoid Big-M confusion in obj row)
   const obj = x.reduce((s, v, j) => s + c[j] * v, 0)
-
   return { x, obj, status: 'optimal' }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
 /**
- * Build and solve the master LP given accumulated cuts.
+ * Master LP input structure.
  *
- * Variables:  z = [Δx_{i,τ}  (nTech×nPeriods)  | θ_ω (nScenarios)]
+ * Standard (no epsilon): z = [Δx_{i,τ}  (nTech×nPeriods)] ∪ [θ_ω (nScenarios)]
+ * With ε-constraint:     z = [Δx_{i,τ}] ∪ [θ_ω] ∪ [φ_ω (nScenarios)]
  *
- * Objective:  min  Σ CAPEX_{i,τ}·disc_τ · Δx_{i,τ}  +  Σ p_ω · θ_ω
+ * Objective:   min  Σ c^inv_{i,τ}·Δx_{i,τ}  +  Σ p_ω·θ_ω    (φ not in objective)
  *
- * Constraints (multicut, one per cut per scenario):
- *   θ_ω  -  Σ_{i,τ} γ^k_{ω,i,τ} · Δx_{i,τ}  ≥  ã^k_ω
- *
- * where ã^k_ω and γ^k_{ω,i,τ} are pre-computed from the cuts.
+ * Constraints:
+ *   (1) Cost cuts:    θ_ω − Σ γ^k_{ω,i,τ}·Δx_{i,τ} ≥ ã^k_ω
+ *   (2) GHG cuts:     φ_ω − Σ γ^k_GHG_{ω,i,τ}·Δx_{i,τ} ≥ ã^k_GHG_ω   [if epsilon set]
+ *   (3) ε constraint: −Σ_ω p_ω·φ_ω ≥ −ε  (b<0 path)                    [if epsilon set]
+ *   (4) Investment:   0 ≤ Δx_{i,τ} ≤ maxDeltaX[i][τ]
+ *   (5) Cumulative:   −Σ_{τ'≤τ} Δx_{i,τ'} ≥ −(maxCumX[i][τ]−x⁰_i)    (b<0 path)
  */
 export interface MasterLP {
   nTech: number
   nPeriods: number
   nScenarios: number
-  investCosts: number[][]   // [nTech][nPeriods]  M€/ktep discounted
-  scenarioProbs: number[]   // [nScenarios]
-  initialCap: number[][]    // [nTech][nPeriods]  x_{i,0,t}
+  investCosts: number[][]     // [nTech][nPeriods] M€/ktep discounted per period
+  scenarioProbs: number[]     // [nScenarios]
+  initialCap: number[][]      // [nTech][nPeriods] = x⁰_i for all τ
   cuts: import('./types').Cut[]
+  maxDeltaX: number[][]       // [nTech][nPeriods] ΔX̄_{i,τ} — max new capacity
+  maxCumX: number[][]         // [nTech][nPeriods] X̄_{i,τ} — max cumulative capacity
+  epsilon?: number             // if set: enforce Σ_ω p_ω·φ_ω ≤ ε (MtCO₂)
+  ghgCuts?: import('./types').GhgCut[]   // GHG linearization cuts (one per scenario per iteration)
 }
 
 export function solveMaster(lp: MasterLP): {
@@ -149,16 +187,21 @@ export function solveMaster(lp: MasterLP): {
   obj: number
   status: string
 } {
-  const { nTech, nPeriods, nScenarios, investCosts, scenarioProbs, initialCap, cuts } = lp
-  const nDeltaX = nTech * nPeriods
-  const nTheta = nScenarios
-  const nOrig = nDeltaX + nTheta
+  const { nTech, nPeriods, nScenarios, investCosts, scenarioProbs,
+          initialCap, cuts, maxDeltaX, maxCumX, epsilon, ghgCuts } = lp
 
-  // Index helpers
+  const hasGhg = epsilon !== undefined && ghgCuts !== undefined && ghgCuts.length > 0
+
+  const nDeltaX = nTech * nPeriods
+  const nTheta  = nScenarios
+  const nPhi    = hasGhg ? nScenarios : 0
+  const nOrig   = nDeltaX + nTheta + nPhi
+
   const idxDelta = (i: number, t: number) => i * nPeriods + t
   const idxTheta = (w: number) => nDeltaX + w
+  const idxPhi   = (w: number) => nDeltaX + nTheta + w   // only valid when hasGhg
 
-  // Objective coefficients
+  // Objective coefficients — φ_ω have zero cost (constraint only, not objective)
   const c = Array(nOrig).fill(0)
   for (let i = 0; i < nTech; i++)
     for (let t = 0; t < nPeriods; t++)
@@ -166,70 +209,100 @@ export function solveMaster(lp: MasterLP): {
   for (let w = 0; w < nScenarios; w++)
     c[idxTheta(w)] = scenarioProbs[w]
 
-  if (cuts.length === 0) {
-    // No cuts yet: minimum is 0 (invest nothing, θ=0)
-    const deltaX = Array.from({ length: nTech }, () => Array(nPeriods).fill(0))
-    const cumX = deltaX.map((row, i) => row.map((_, t) => initialCap[i][t]))
-    return {
-      deltaX,
-      cumX,
-      theta: Array(nScenarios).fill(0),
-      investCost: 0,
-      obj: 0,
-      status: 'optimal',
-    }
-  }
+  // Upper bounds: Δx_{i,τ} ≤ maxDeltaX[i][τ], θ_ω and φ_ω unbounded
+  const ub = Array(nOrig).fill(Infinity)
+  for (let i = 0; i < nTech; i++)
+    for (let t = 0; t < nPeriods; t++)
+      ub[idxDelta(i, t)] = maxDeltaX[i][t]
 
-  // Build constraints: one per cut
-  // Cut says: θ_ω ≥ alpha + Σ_{i,τ} beta[i][τ] · x_{i,τ}
-  // With x_{i,τ} = x0_{i,τ} + Σ_{τ'≤τ} Δx_{i,τ'} (cumulative)
-  // So: θ_ω - Σ_{i,τ'} γ_{ω,i,τ'} · Δx_{i,τ'} ≥ ã_ω
-  //   where γ_{ω,i,τ'} = Σ_{τ≥τ'} beta[i][τ]
-  //   and   ã_ω        = alpha + Σ_{i,τ} beta[i][τ] · x0_{i,τ}
-
+  // Build ≥ constraint matrix
   const A: number[][] = []
   const b: number[] = []
 
+  // ── (1) Cost optimality cuts ─────────────────────────────────────────────
+  // θ_w − Σ_{i,τ'} γ_{w,i,τ'}·Δx_{i,τ'} ≥ ã_{w}^k
+  // where ã = α + Σ β·x0  and  γ_{i,τ'} = Σ_{t≥τ'} β[i][t]  (suffix sum)
   for (const cut of cuts) {
     const w = cut.scenarioIdx
-    // Compute ã
     let aTilde = cut.alpha
     for (let i = 0; i < nTech; i++)
       for (let t = 0; t < nPeriods; t++)
         aTilde += cut.beta[i][t] * initialCap[i][t]
 
-    // Compute γ_{i,τ'} = Σ_{t≥τ'} beta[i][t]
     const gamma: number[][] = Array.from({ length: nTech }, () => Array(nPeriods).fill(0))
-    for (let i = 0; i < nTech; i++) {
-      for (let tau = nPeriods - 1; tau >= 0; tau--) {
+    for (let i = 0; i < nTech; i++)
+      for (let tau = nPeriods - 1; tau >= 0; tau--)
         gamma[i][tau] = cut.beta[i][tau] + (tau + 1 < nPeriods ? gamma[i][tau + 1] : 0)
-      }
-    }
 
-    // Row: θ_w - Σ_{i,τ'} γ[i][τ'] · Δx_{i,τ'} ≥ aTilde
     const row = Array(nOrig).fill(0)
     row[idxTheta(w)] = 1
     for (let i = 0; i < nTech; i++)
       for (let tau = 0; tau < nPeriods; tau++)
-        row[idxDelta(i, tau)] = -gamma[i][tau]  // subtract γ·Δx from lhs
+        row[idxDelta(i, tau)] = -gamma[i][tau]
 
-    // b must be ≥ 0 for our implementation. aTilde can be negative if cuts are weak.
-    // If aTilde < 0 we can safely clamp to 0 (θ ≥ 0 already dominates)
-    const bVal = Math.max(0, aTilde)
     A.push(row)
-    b.push(bVal)
+    b.push(aTilde)
   }
 
-  const result = solveLPGe(nOrig, c, A, b)
+  // ── (2) GHG linearization cuts (only when ε-constraint active) ───────────
+  // φ_w − Σ_{i,τ'} γ_GHG_{w,i,τ'}·Δx_{i,τ'} ≥ ã_GHG_{w}^k
+  // Valid because Z₂(x,ω) is concave in x → gradient gives global upper bound
+  // → φ_ω ≥ cut(x) ≥ Z₂(x,ω) at the optimum, so Σ p_ω φ_ω ≤ ε ⟹ E[Z₂] ≤ ε
+  if (hasGhg) {
+    for (const ghgCut of ghgCuts!) {
+      const w = ghgCut.scenarioIdx
+      let aTildeGhg = ghgCut.alphaGhg
+      for (let i = 0; i < nTech; i++)
+        for (let t = 0; t < nPeriods; t++)
+          aTildeGhg += ghgCut.betaGhg[i][t] * initialCap[i][t]
+
+      const gammaGhg: number[][] = Array.from({ length: nTech }, () => Array(nPeriods).fill(0))
+      for (let i = 0; i < nTech; i++)
+        for (let tau = nPeriods - 1; tau >= 0; tau--)
+          gammaGhg[i][tau] = ghgCut.betaGhg[i][tau] + (tau + 1 < nPeriods ? gammaGhg[i][tau + 1] : 0)
+
+      const row = Array(nOrig).fill(0)
+      row[idxPhi(w)] = 1
+      for (let i = 0; i < nTech; i++)
+        for (let tau = 0; tau < nPeriods; tau++)
+          row[idxDelta(i, tau)] = -gammaGhg[i][tau]
+
+      A.push(row)
+      b.push(aTildeGhg)
+    }
+
+    // ── (3) GHG aggregate constraint: Σ_ω p_ω·φ_ω ≤ ε ─────────────────────
+    // Written as ≥: −Σ_ω p_ω·φ_ω ≥ −ε  (b < 0 path in solveLPGe)
+    const row = Array(nOrig).fill(0)
+    for (let w = 0; w < nScenarios; w++) row[idxPhi(w)] = -scenarioProbs[w]
+    A.push(row)
+    b.push(-epsilon!)   // b < 0 → handled by negated-row path
+  }
+
+  // ── (4) Cumulative capacity bounds ───────────────────────────────────────
+  // −Σ_{τ'≤τ} Δx_{i,τ'} ≥ −(maxCumX[i][τ]−x⁰_i)   (b<0 path)
+  for (let i = 0; i < nTech; i++) {
+    for (let tau = 0; tau < nPeriods; tau++) {
+      const rhs = -(maxCumX[i][tau] - initialCap[i][tau])
+      if (rhs >= 0) continue
+      const row = Array(nOrig).fill(0)
+      for (let tPrime = 0; tPrime <= tau; tPrime++)
+        row[idxDelta(i, tPrime)] = -1
+      A.push(row)
+      b.push(rhs)
+    }
+  }
+
+  // ── Solve ─────────────────────────────────────────────────────────────────
+  const result = solveLPGe(nOrig, c, A, b, ub)
 
   if (result.status !== 'optimal') {
-    // Fallback: return initial capacity, no investment
     const deltaX = Array.from({ length: nTech }, () => Array(nPeriods).fill(0))
-    const cumX = deltaX.map((row, i) => row.map((_, t) => initialCap[i][t]))
+    const cumX = deltaX.map((_, i) => initialCap[i].slice())
     return { deltaX, cumX, theta: Array(nScenarios).fill(0), investCost: 0, obj: 0, status: result.status }
   }
 
-  // Extract Δx and θ
+  // ── Extract Δx, θ (and discard φ — used internally for constraint only) ──
   const deltaX = Array.from({ length: nTech }, (_, i) =>
     Array.from({ length: nPeriods }, (__, t) => Math.max(0, result.x[idxDelta(i, t)]))
   )
@@ -237,15 +310,12 @@ export function solveMaster(lp: MasterLP): {
     Math.max(0, result.x[idxTheta(w)])
   )
 
-  // Cumulative capacity x_{i,t} = x_{i,0} + Σ_{τ≤t} Δx_{i,τ}
   const cumX = Array.from({ length: nTech }, (_, i) => {
-    const row: number[] = []
     let running = 0
-    for (let t = 0; t < nPeriods; t++) {
+    return Array.from({ length: nPeriods }, (__, t) => {
       running += deltaX[i][t]
-      row.push(initialCap[i][t] + running)
-    }
-    return row
+      return initialCap[i][t] + running
+    })
   })
 
   const investCost = deltaX.reduce(

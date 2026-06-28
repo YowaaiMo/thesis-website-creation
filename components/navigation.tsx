@@ -51,15 +51,10 @@ const mcNavItems = [
   { href: "/animation", label: "Animation", icon: Timer },
 ]
 
+// Onglets détaillés maintenant gérés par app/optimisation/layout.tsx (barre horizontale 10 onglets)
+// La sidebar garde une seule entrée pour ne pas dupliquer la navigation
 const optimNavItems = [
-  { href: "/optimisation", label: "Apercu L-Shaped", icon: Zap },
-  { href: "/optimisation/resolution", label: "Resolution", icon: Play },
-  { href: "/optimisation/iterations", label: "Convergence", icon: TrendingUp },
-  { href: "/optimisation/sous-problemes", label: "Sous-problemes", icon: Network },
-  { href: "/optimisation/coupes", label: "Coupes generees", icon: Scissors },
-  { href: "/optimisation/pareto", label: "Front de Pareto", icon: ScatterChart },
-  { href: "/optimisation/resultats", label: "Resultats optimaux", icon: Trophy },
-  { href: "/optimisation/rapport", label: "Rapport final", icon: TableProperties },
+  { href: "/optimisation/resolution", label: "Optimisation L-Shaped", icon: Zap },
 ]
 
 export function Navigation() {

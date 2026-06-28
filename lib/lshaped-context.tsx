@@ -15,8 +15,14 @@ import {
   type LShapedScenario,
   type ParetoPoint,
 } from "@/lib/lshaped/types"
-import { buildScenariosFromLHS, buildDefaultScenarios } from "@/lib/lshaped/scenarios"
+import { buildScenariosFromLHS } from "@/lib/lshaped/scenarios"
 import { runLShaped, runPareto } from "@/lib/lshaped/solver"
+
+// buildDefaultScenarios is intentionally NOT imported here.
+// The L-Shaped solver must use ONLY LHS scenarios.
+// There is a single source of scenarios in the application:
+//   GenerationPage (LHS) → SimulationContext (lhsResult) → L-Shaped solver
+// If lhsResult is null, the solver must not run.
 
 interface LShapedContextType {
   config: LShapedConfig
@@ -26,6 +32,7 @@ interface LShapedContextType {
   paretoPoints: ParetoPoint[]
   isRunning: boolean
   isRunningPareto: boolean
+  lhsAvailable: boolean  // true iff lhsResult is present — gate for the solver
   progress: { k: number; LB: number; UB: number; gap: number } | null
   paretoProgress: { pt: number; total: number } | null
   runSolver: (overrideConfig?: LShapedConfig) => void
@@ -47,22 +54,31 @@ export function LShapedProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<{ k: number; LB: number; UB: number; gap: number } | null>(null)
   const [paretoProgress, setParetoProgress] = useState<{ pt: number; total: number } | null>(null)
 
-  const buildScenarios = useCallback((n: number) => {
-    return lhsResult
-      ? buildScenariosFromLHS(lhsResult, n)
-      : buildDefaultScenarios(n)
+  const lhsAvailable = lhsResult !== null && lhsResult !== undefined
+
+  // Single scenario source: LHS only.
+  // Returns null if no LHS result is available — callers must check.
+  const buildScenariosFromLHSOrNull = useCallback((n: number): LShapedScenario[] | null => {
+    if (!lhsResult) return null
+    return buildScenariosFromLHS(lhsResult, n)
   }, [lhsResult])
 
   const runSolver = useCallback((overrideConfig?: LShapedConfig) => {
+    // Hard gate: refuse to run without LHS scenarios
+    if (!lhsResult) return
+
     const effectiveConfig = overrideConfig ?? config
     setIsRunning(true)
     setProgress(null)
     setResult(null)
 
-    // Use setTimeout to allow React to render before heavy computation
     setTimeout(() => {
       try {
-        const sc = buildScenarios(effectiveConfig.nScenarios)
+        const sc = buildScenariosFromLHSOrNull(effectiveConfig.nScenarios)
+        if (!sc) {
+          setIsRunning(false)
+          return
+        }
         setScenarios(sc)
 
         const res = runLShaped(sc, effectiveConfig, (k, LB, UB, gap) => {
@@ -74,16 +90,26 @@ export function LShapedProvider({ children }: { children: ReactNode }) {
         setProgress(null)
       }
     }, 30)
-  }, [config, buildScenarios])
+  }, [config, buildScenariosFromLHSOrNull, lhsResult])
 
   const runParetoFront = useCallback((ghgMin: number, ghgMax: number, nPoints: number) => {
+    // Hard gate: refuse to run without LHS scenarios
+    if (!lhsResult) return
+
     setIsRunningPareto(true)
     setParetoProgress(null)
     setParetoPoints([])
 
     setTimeout(() => {
       try {
-        const sc = scenarios.length > 0 ? scenarios : buildScenarios(config.nScenarios)
+        // Prefer already-built scenarios; otherwise rebuild from LHS
+        const sc = scenarios.length > 0
+          ? scenarios
+          : buildScenariosFromLHSOrNull(config.nScenarios)
+        if (!sc) {
+          setIsRunningPareto(false)
+          return
+        }
         const pts = runPareto(sc, config, ghgMin, ghgMax, nPoints, (pt, total) => {
           setParetoProgress({ pt, total })
         })
@@ -93,7 +119,7 @@ export function LShapedProvider({ children }: { children: ReactNode }) {
         setParetoProgress(null)
       }
     }, 30)
-  }, [config, scenarios, buildScenarios])
+  }, [config, scenarios, buildScenariosFromLHSOrNull, lhsResult])
 
   const resetResult = useCallback(() => {
     setResult(null)
@@ -111,6 +137,7 @@ export function LShapedProvider({ children }: { children: ReactNode }) {
       paretoPoints,
       isRunning,
       isRunningPareto,
+      lhsAvailable,
       progress,
       paretoProgress,
       runSolver,
