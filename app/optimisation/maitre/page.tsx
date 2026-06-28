@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import { useLShaped } from "@/lib/lshaped-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle } from "lucide-react"
@@ -192,10 +193,10 @@ export default function MaitrePage() {
                 <tr className="border-b border-border/60 text-xs text-muted-foreground">
                   <th className="text-left py-1 pr-4"></th>
                   {DEFAULT_PERIODS.map(yr => (
-                    <>
-                      <th key={`dx-${yr}`} className="text-right py-1 px-2 text-[10px]">Δx</th>
-                      <th key={`cx-${yr}`} className="text-right py-1 px-2 text-[10px]">x (cum.)</th>
-                    </>
+                    <React.Fragment key={yr}>
+                      <th className="text-right py-1 px-2 text-[10px]">Δx</th>
+                      <th className="text-right py-1 px-2 text-[10px]">x (cum.)</th>
+                    </React.Fragment>
                   ))}
                 </tr>
               </thead>
@@ -204,16 +205,16 @@ export default function MaitrePage() {
                   <tr key={tech} className="border-b border-border/40 hover:bg-secondary/10">
                     <td className="py-2 pr-4 font-medium" style={{ color: TECH_COLORS[tech] }}>{tech}</td>
                     {periods.map((p, t) => (
-                      <>
-                        <td key={`dx-${t}`} className="py-2 px-2 text-right font-mono text-xs">
+                      <React.Fragment key={t}>
+                        <td className="py-2 px-2 text-right font-mono text-xs">
                           {p.dx > 0
                             ? <span className="text-chart-2">+{p.dx.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
                             : <span className="text-muted-foreground">—</span>}
                         </td>
-                        <td key={`cx-${t}`} className="py-2 px-2 text-right font-mono text-xs">
+                        <td className="py-2 px-2 text-right font-mono text-xs">
                           {p.cumX.toLocaleString(undefined, {maximumFractionDigits: 0})}
                         </td>
-                      </>
+                      </React.Fragment>
                     ))}
                   </tr>
                 ))}
