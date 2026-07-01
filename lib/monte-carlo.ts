@@ -181,9 +181,9 @@ export const DEFAULT_PARAMS: SimulationParams = {
   garchOmega: 0.0002,
   garchAlpha: 0.10,
   garchBeta: 0.85,
-  oilOpCostMean: 48846,  oilOpCostStd: 2442,
-  gplOpCostMean: 44194,  gplOpCostStd: 2210,
-  condensatOpCostMean: 46520, condensatOpCostStd: 2326,
+  oilOpCostMean: 0.586,  oilOpCostStd: 0.0293,    // MUSD/ktep — EIA/IndexBox, σ=5% µ
+  gplOpCostMean: 0.485,  gplOpCostStd: 0.0243,    // MUSD/ktep
+  condensatOpCostMean: 0.550, condensatOpCostStd: 0.0275, // MUSD/ktep
   // Demand trend coefficients — section 5.2
   demandResA: 2.97,   demandResB: 218.55,  demandResC: 3614.88, demandResStd: 1330,
   demandIndA: 7.37,   demandIndB: -108.43, demandIndC: 4045.29, demandIndStd: 488,

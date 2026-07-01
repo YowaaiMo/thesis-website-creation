@@ -43,13 +43,13 @@ export function buildScenariosFromLHS(
       const gasOpCost = gasBase * Math.max(0.5, Math.min(3, gasFactor))
 
       const oilFactor = sc.operationalCostOil[yearIdx]
-        ? sc.operationalCostOil[yearIdx] / 48_846
+        ? sc.operationalCostOil[yearIdx] / 0.586   // normalize: ratio to MUSD/ktep mean
         : 1
       const gplFactor = sc.operationalCostGPL[yearIdx]
-        ? sc.operationalCostGPL[yearIdx] / 44_194
+        ? sc.operationalCostGPL[yearIdx] / 0.485   // normalize: ratio to MUSD/ktep mean
         : 1
       const condFactor = sc.operationalCostCondensat[yearIdx]
-        ? sc.operationalCostCondensat[yearIdx] / 46_520
+        ? sc.operationalCostCondensat[yearIdx] / 0.550   // normalize: ratio to MUSD/ktep mean
         : 1
 
       return {

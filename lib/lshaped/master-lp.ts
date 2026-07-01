@@ -97,7 +97,7 @@ export function solveLPGe(
   }
 
   const EPS = 1e-9
-  const MAX_ITER = 10_000
+  const MAX_ITER = 50_000
 
   for (let iter = 0; iter < MAX_ITER; iter++) {
     // Dantzig pivot: most negative reduced cost

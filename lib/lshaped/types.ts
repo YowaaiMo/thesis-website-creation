@@ -7,11 +7,11 @@ export const TECHNOLOGIES = ['PV', 'Wind', 'Gaz', 'Pétrole', 'GPL', 'Condensat'
 export type Technology = typeof TECHNOLOGIES[number]
 export const N_TECH = 7
 
-// 5 representative periods spanning 2024–2050
-// Justification: temporal aggregation reduces master LP from 27×7=189 to 5×7=35 variables.
-// Energy balance is preserved via span weights Δt_τ; discounting via d_τ × Δt_τ approximates ∫d(t)dt.
-export const DEFAULT_PERIODS = [2024, 2030, 2036, 2042, 2048] as const
-export const DEFAULT_PERIOD_SPANS = [6, 6, 6, 6, 3] as const // years each period represents
+// 27 annual periods 2024–2050 — one period per calendar year.
+// Annual resolution aligns with the 27-year stochastic arrays in monte-carlo.ts
+// and eliminates temporal-aggregation error from the previous 5-period model.
+export const DEFAULT_PERIODS: readonly number[] = Array.from({ length: 27 }, (_, i) => 2024 + i)
+export const DEFAULT_PERIOD_SPANS: readonly number[] = Array.from({ length: 27 }, () => 1)
 
 export interface LShapedScenario {
   id: number
@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG: LShapedConfig = {
   lambdaD: 50,           // M€/ktep — >> max fossil op cost ~0.22
   enablePareto: false,
   nParetoPoints: 10,
-  ndcThreshold: 2_500,   // MtCO₂ — plafond NDC Algérie (ajustable)
+  ndcThreshold: 171.9,   // MtCO₂ — plafond NDC Algérie 2024-2050 (Pareto mode)
 }
 
 export const DEBUG_CONFIG: LShapedConfig = {
@@ -72,17 +72,17 @@ export const INITIAL_CAPACITY: Record<Technology, number> = {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Maximum NEW capacity per 6-year representative period.
-// Renouvelables : ajout annuel max × 6 ans (Table 6.4 mémoire).
-// Fossiles : bornes de réalisme technologique (expansion possible mais plafonnée).
+// Maximum NEW capacity per YEAR (annual periods).
+// Values = previous 6-year limits ÷ 6 (Table 6.4 mémoire, converted to annual).
+// Fossiles : bornes de réalisme technologique annuelles.
 export const MAX_DELTA_X: Record<Technology, number> = {
-  'PV':        24_000,   // 4 000/an × 6 ans — Table 6.4 (mémoire)
-  'Wind':      18_000,   // 3 000/an × 6 ans — Table 6.4 (mémoire)
-  'Gaz':        5_000,   // expansion Sonelgaz — plafond de réalisme
-  'Pétrole':    2_000,   // tendance légèrement déclinante
-  'GPL':        1_000,   // saturation résidentielle
-  'Condensat':  1_000,   // couplé à la production pétrolière
-  'Batterie':   7_200,   // 1 200/an × 6 ans — Table 6.4 (mémoire)
+  'PV':        4_000,    // 4 000/an — Table 6.4 (mémoire)
+  'Wind':      3_000,    // 3 000/an — Table 6.4 (mémoire)
+  'Gaz':         833,    // ≈ 5 000/6 — expansion Sonelgaz
+  'Pétrole':     333,    // ≈ 2 000/6
+  'GPL':         167,    // ≈ 1 000/6
+  'Condensat':   167,    // ≈ 1 000/6
+  'Batterie':  1_200,    // 1 200/an — Table 6.4 (mémoire)
 }
 
 // Maximum CUMULATIVE installed capacity.
@@ -98,17 +98,45 @@ export const MAX_CUMULATIVE_X: Record<Technology, number> = {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// CAPEX per period in M€/ktep — interpreted as annualized capital cost
-// (paid every year of the period, so total cost = CAPEX × disc_τ × Δt_τ)
-// Row = technology, column = period index (0‥4)
-export const CAPEX_BY_PERIOD: Record<Technology, number[]> = {
-  'PV':        [5.31, 4.15, 3.25, 2.54, 1.99],   // declining (learning curve)
-  'Wind':      [6.37, 5.48, 4.71, 4.05, 3.48],   // declining
-  'Gaz':       [1.09, 1.09, 1.09, 1.09, 1.09],   // constant (mature technology)
+// CAPEX per year in M€/ktep — linearly interpolated between 5 calibration anchors
+// (2024, 2030, 2036, 2042, 2048) and extrapolated beyond 2048 using the 2042→2048 slope.
+// Row = technology, column = year index (0 = 2024 … 26 = 2050).
+
+const _CAPEX_AY = [2024, 2030, 2036, 2042, 2048]   // anchor years
+const _CAPEX_RAW: Record<Technology, number[]> = {
+  'PV':        [5.31, 4.15, 3.25, 2.54, 1.99],
+  'Wind':      [6.37, 5.48, 4.71, 4.05, 3.48],
+  'Gaz':       [1.09, 1.09, 1.09, 1.09, 1.09],
   'Pétrole':   [0.80, 0.80, 0.80, 0.80, 0.80],
   'GPL':       [0.70, 0.70, 0.70, 0.70, 0.70],
   'Condensat': [0.80, 0.80, 0.80, 0.80, 0.80],
-  'Batterie':  [15.9, 10.8, 7.37, 5.02, 3.41],   // strong learning curve (lithium-ion)
+  'Batterie':  [15.9, 10.8, 7.37, 5.02, 3.41],
+}
+function _interpCapex(anchors: number[], years: number[]): number[] {
+  const n = _CAPEX_AY.length
+  const lastSlope = (anchors[n - 1] - anchors[n - 2]) / (_CAPEX_AY[n - 1] - _CAPEX_AY[n - 2])
+  return years.map(y => {
+    if (y <= _CAPEX_AY[0]) return anchors[0]
+    if (y >= _CAPEX_AY[n - 1]) return anchors[n - 1] + lastSlope * (y - _CAPEX_AY[n - 1])
+    for (let i = 0; i < n - 1; i++) {
+      if (y >= _CAPEX_AY[i] && y <= _CAPEX_AY[i + 1]) {
+        const t = (y - _CAPEX_AY[i]) / (_CAPEX_AY[i + 1] - _CAPEX_AY[i])
+        return anchors[i] + t * (anchors[i + 1] - anchors[i])
+      }
+    }
+    return anchors[n - 1]
+  })
+}
+const _Y27 = Array.from({ length: 27 }, (_, i) => 2024 + i)
+
+export const CAPEX_BY_PERIOD: Record<Technology, number[]> = {
+  'PV':        _interpCapex(_CAPEX_RAW['PV'],        _Y27),
+  'Wind':      _interpCapex(_CAPEX_RAW['Wind'],      _Y27),
+  'Gaz':       _interpCapex(_CAPEX_RAW['Gaz'],       _Y27),
+  'Pétrole':   _interpCapex(_CAPEX_RAW['Pétrole'],   _Y27),
+  'GPL':       _interpCapex(_CAPEX_RAW['GPL'],       _Y27),
+  'Condensat': _interpCapex(_CAPEX_RAW['Condensat'], _Y27),
+  'Batterie':  _interpCapex(_CAPEX_RAW['Batterie'],  _Y27),
 }
 
 // Base operational costs (M€/ktep dispatched) — stochastic costs built on top for fossils
@@ -148,10 +176,11 @@ export const BATTERY_ROUND_TRIP_EFF = 0.846  // η_c × η_d = 0.92²
 
 // NDC plafond d'émissions (MtCO₂ sur tout l'horizon 2024–2050)
 // ≈ 37% réduction vs référence 100% fossil (~4 000 MtCO₂). Ajustable par l'utilisateur.
-export const NDC_THRESHOLD_DEFAULT = 2_500
+export const NDC_THRESHOLD_DEFAULT = 171.9
 
-// Discount factor d_τ = (1 + r)^{-(τ − 2024)}, r = 2%
-export function discountFactor(year: number, r = 0.02): number {
+// Discount factor d_t = (1 + r)^{-(t − 2024)}, r = 7%
+// With annual periods (span = 1), no annuity factor needed — CAPEX cost = CAPEX × d_t.
+export function discountFactor(year: number, r = 0.07): number {
   return 1 / Math.pow(1 + r, year - 2024)
 }
 

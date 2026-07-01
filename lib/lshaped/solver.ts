@@ -28,19 +28,15 @@ import { solveSubproblem } from './subproblem'
 import { solveMaster, type MasterLP } from './master-lp'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Build investment cost matrix c^inv_{i,τ} = CAPEX_{i,τ} × d_τ × a(r, Δt_τ)  [M€/ktep]
-// where a(r, Δt) = (1 − (1+r)^{−Δt}) / r  is the present-value annuity factor.
-// r = 0.02 must match the default in discountFactor().
-// Previous version used Δt_τ instead of a(r, Δt_τ), over-estimating CAPEX by ~7 %.
+// Build investment cost matrix c^inv_{i,t} = CAPEX_{i,t} × d_t  [M€/ktep]
+// With annual periods (span = 1), no annuity factor is needed.
+// d_t = (1 + r)^{-(t − 2024)}, r = 0.07 (default in discountFactor).
 function buildInvestCosts(nPeriods: number): number[][] {
-  const r = 0.02
   return Array.from({ length: N_TECH }, (_, i) =>
     Array.from({ length: nPeriods }, (__, t) => {
       const capex = CAPEX_BY_PERIOD[TECHNOLOGIES[i]][t]
-      const disc = discountFactor(DEFAULT_PERIODS[t])
-      const span = DEFAULT_PERIOD_SPANS[t]
-      const annuity = (1 - Math.pow(1 / (1 + r), span)) / r
-      return capex * disc * annuity
+      const disc = discountFactor(DEFAULT_PERIODS[t])   // r = 0.07 by default
+      return capex * disc
     })
   )
 }
